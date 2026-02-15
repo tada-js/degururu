@@ -22,14 +22,18 @@ export function makeBoard({
   sidePad = 70,
   slotCount = 8,
   slotH = 130,
-  heightMultiplier = 1
+  heightMultiplier = 1,
+  elementScale = 1
 } = {}) {
   const baseH = worldH;
   const baseRows = rows;
   const mul = Math.max(1, Math.floor(heightMultiplier));
+  const es = Math.max(0.5, Math.min(1.2, Number(elementScale) || 1));
 
   worldH = baseH * mul;
   rows = Math.max(6, baseRows * mul);
+  pegR = pegR * es;
+  ballR = ballR * es;
 
   const pegGapX = (worldW - sidePad * 2) / (cols - 1);
   const pegGapY = (worldH - topPad - slotH - 120) / (rows - 1);

@@ -128,7 +128,7 @@ export function makeRenderer(canvas, { board }) {
     ctx.stroke();
 
     // Slot dividers & labels.
-    ctx.font = "700 16px ui-monospace, Menlo, monospace";
+    ctx.font = "700 14px ui-monospace, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (let i = 0; i < board.slotCount; i++) {
