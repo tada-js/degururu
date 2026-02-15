@@ -3,14 +3,16 @@ import {
   makeGameState,
   resetGame,
   setDropX,
-  setSelectedBall,
   snapshotForText,
   startGame,
   step,
-  dropMarble
+  dropMarble,
+  getBallCount,
+  getTotalSelectedCount,
+  setBallCount
 } from "./game/engine.js";
 import { makeRenderer } from "./game/render.js";
-import { loadBallsCatalog, saveBallsCatalog } from "./ui/storage.js";
+import { loadBallsCatalog, loadBallCounts, saveBallsCatalog, saveBallCounts } from "./ui/storage.js";
 import { mountSettingsDialog } from "./ui/settings.js";
 
 const canvas = document.getElementById("game");
@@ -31,6 +33,7 @@ let ballsCatalog = loadBallsCatalog();
 saveBallsCatalog(ballsCatalog);
 
 const state = makeGameState({ seed: 1337, board, ballsCatalog });
+state.counts = loadBallCounts(ballsCatalog);
 const renderer = makeRenderer(canvas, { board });
 
 const imagesById = new Map();
@@ -47,9 +50,11 @@ refreshImages();
 function setBalls(next) {
   ballsCatalog = next;
   state.ballsCatalog = next;
-  if (!next.some((b) => b.id === state.selectedBallId)) {
-    state.selectedBallId = next[0]?.id || null;
-  }
+  // Keep counts aligned with catalog.
+  const nextCounts = {};
+  for (const b of next) nextCounts[b.id] = state.counts?.[b.id] ?? 1;
+  state.counts = nextCounts;
+  saveBallCounts(state.counts);
   refreshImages();
   renderBallCards();
 }
@@ -67,20 +72,7 @@ function renderBallCards() {
   for (const b of ballsCatalog) {
     const card = document.createElement("div");
     card.className = "ball-card";
-    card.role = "option";
-    card.tabIndex = 0;
-    card.setAttribute("aria-selected", String(state.selectedBallId === b.id));
-    card.addEventListener("click", () => {
-      setSelectedBall(state, b.id);
-      renderBallCards();
-    });
-    card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        setSelectedBall(state, b.id);
-        renderBallCards();
-      }
-    });
+    card.role = "group";
 
     const thumb = document.createElement("div");
     thumb.className = "ball-thumb";
@@ -100,20 +92,54 @@ function renderBallCards() {
     meta.appendChild(name);
     meta.appendChild(id);
 
+    const qty = document.createElement("div");
+    qty.className = "ball-qty";
+
+    const minus = document.createElement("button");
+    minus.className = "btn btn--ghost ball-qty__btn";
+    minus.type = "button";
+    minus.textContent = "-";
+
+    const count = document.createElement("div");
+    count.className = "ball-qty__count";
+    count.textContent = String(getBallCount(state, b.id));
+
+    const plus = document.createElement("button");
+    plus.className = "btn btn--ghost ball-qty__btn";
+    plus.type = "button";
+    plus.textContent = "+";
+
+    const applyDelta = (d) => {
+      if (state.mode === "playing") return;
+      const next = getBallCount(state, b.id) + d;
+      setBallCount(state, b.id, next);
+      saveBallCounts(state.counts);
+      count.textContent = String(getBallCount(state, b.id));
+      updateControls();
+    };
+    minus.addEventListener("click", () => applyDelta(-1));
+    plus.addEventListener("click", () => applyDelta(+1));
+
+    qty.appendChild(minus);
+    qty.appendChild(count);
+    qty.appendChild(plus);
+
     card.appendChild(thumb);
     card.appendChild(meta);
+    card.appendChild(qty);
     ballsEl.appendChild(card);
   }
 }
 renderBallCards();
 
 function updateControls() {
-  dropBtn.disabled = state.mode !== "playing" || !state.selectedBallId;
+  const total = getTotalSelectedCount(state);
+  dropBtn.disabled = state.mode !== "playing" || state.dropQueue.length === 0;
   startBtn.disabled = state.mode === "playing";
   hintEl.textContent =
     state.mode === "playing"
-      ? "Click the board to set drop position. Then press DROP."
-      : "Press Start to begin. Customize balls in Settings.";
+      ? `Click the board to set drop position. Then press DROP. Remaining: ${state.dropQueue.length}`
+      : `Select counts (+/-), then press Start. Total selected: ${total}`;
 }
 
 function setResultText(msg) {
@@ -121,6 +147,10 @@ function setResultText(msg) {
 }
 
 startBtn.addEventListener("click", () => {
+  if (getTotalSelectedCount(state) <= 0) {
+    setResultText("Select at least 1 ball.");
+    return;
+  }
   startGame(state);
   state._shownResultId = null;
   setResultText("");
@@ -141,7 +171,7 @@ settingsBtn.addEventListener("click", () => {
 dropBtn.addEventListener("click", () => {
   const m = dropMarble(state);
   if (!m) return;
-  setResultText(`Dropped: ${m.name}`);
+  setResultText(`Dropped: ${m.name} (remaining: ${state.dropQueue.length})`);
 });
 
 function canvasPointerToWorld(e) {

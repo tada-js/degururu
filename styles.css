@@ -113,7 +113,7 @@ canvas#game {
 
 .balls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-top: 14px;
 }
@@ -123,14 +123,9 @@ canvas#game {
   background: rgba(255,255,255,0.05);
   border-radius: 14px;
   padding: 10px;
-  cursor: pointer;
   display: flex;
   gap: 10px;
   align-items: center;
-}
-.ball-card[aria-selected="true"] {
-  outline: 2px solid rgba(255, 176, 0, 0.65);
-  background: rgba(255, 176, 0, 0.08);
 }
 .ball-thumb {
   width: 44px;
@@ -146,6 +141,30 @@ canvas#game {
 .ball-meta { min-width: 0; }
 .ball-name { font-weight: 800; line-height: 1.1; }
 .ball-id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+.ball-qty {
+  margin-left: auto;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 8px;
+  align-items: center;
+}
+.ball-qty__btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 999px;
+}
+.ball-qty__count {
+  min-width: 34px;
+  text-align: center;
+  font-family: var(--mono);
+  font-weight: 900;
+  padding: 6px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.18);
+}
 
 .result {
   padding: 10px 12px;
@@ -240,4 +259,3 @@ canvas#game {
   canvas#game { height: calc(100vh - 280px); }
   .settings-row { grid-template-columns: 70px 1fr; }
 }
-

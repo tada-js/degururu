@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeBoard, makeGameState, startGame, setDropX, dropMarble, step } from "../src/game/engine.js";
+import { makeBoard, makeGameState, startGame, setDropX, dropMarble, setBallCount, step } from "../src/game/engine.js";
 
 test("drops resolve into deterministic slots (with fixed seed and dropX)", () => {
   const board = makeBoard({ slotCount: 8 });
@@ -8,6 +8,7 @@ test("drops resolve into deterministic slots (with fixed seed and dropX)", () =>
     { id: "dog", name: "강아지", imageDataUrl: "data:image/svg+xml;utf8,<svg/>", tint: "#fff" }
   ];
   const state = makeGameState({ seed: 42, board, ballsCatalog });
+  setBallCount(state, "dog", 5);
   startGame(state);
 
   const drops = [120, 260, 450, 630, 820];

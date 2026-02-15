@@ -65,6 +65,8 @@ export function makeBoard({
 }
 
 export function makeGameState({ seed = 1234, board = makeBoard(), ballsCatalog = [] } = {}) {
+  const counts = {};
+  for (const b of ballsCatalog) counts[b.id] = 1;
   return {
     mode: "menu", // menu | playing
     t: 0,
@@ -72,16 +74,46 @@ export function makeGameState({ seed = 1234, board = makeBoard(), ballsCatalog =
     rng: makeRng(seed),
     board,
     ballsCatalog,
-    selectedBallId: ballsCatalog[0]?.id || null,
+    counts,
+    dropQueue: [],
     dropX: board.worldW / 2,
     marbles: [],
     lastResult: null
   };
 }
 
-export function setSelectedBall(state, id) {
+export function setBallCount(state, id, count) {
   if (!state.ballsCatalog.some((b) => b.id === id)) return;
-  state.selectedBallId = id;
+  const safe = clampInt(Number(count) || 0, 0, 99);
+  state.counts[id] = safe;
+}
+
+export function getBallCount(state, id) {
+  return clampInt(state.counts?.[id] ?? 0, 0, 99);
+}
+
+export function getTotalSelectedCount(state) {
+  let total = 0;
+  for (const b of state.ballsCatalog) total += getBallCount(state, b.id);
+  return total;
+}
+
+export function prepareDropQueue(state, { shuffle = true } = {}) {
+  const queue = [];
+  for (const b of state.ballsCatalog) {
+    const n = getBallCount(state, b.id);
+    for (let i = 0; i < n; i++) queue.push(b.id);
+  }
+  if (shuffle && queue.length > 1) {
+    // Do not consume state.rng: keep simulation jitter stable across runs.
+    const rnd = makeRng((state.seed ^ 0x9e3779b9) >>> 0);
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]];
+    }
+  }
+  state.dropQueue = queue;
+  return queue;
 }
 
 export function setDropX(state, x) {
@@ -94,6 +126,7 @@ export function startGame(state) {
   state.t = 0;
   state.marbles = [];
   state.lastResult = null;
+  prepareDropQueue(state, { shuffle: true });
 }
 
 export function resetGame(state) {
@@ -101,11 +134,14 @@ export function resetGame(state) {
   state.t = 0;
   state.marbles = [];
   state.lastResult = null;
+  state.dropQueue = [];
 }
 
 export function dropMarble(state) {
   if (state.mode !== "playing") return null;
-  const ball = state.ballsCatalog.find((b) => b.id === state.selectedBallId);
+  const nextId = state.dropQueue.shift();
+  if (!nextId) return null;
+  const ball = state.ballsCatalog.find((b) => b.id === nextId);
   if (!ball) return null;
 
   // Add tiny seeded jitter so consecutive balls don't perfectly overlap.
@@ -205,7 +241,8 @@ export function snapshotForText(state) {
     note: "coords: origin at top-left. x -> right, y -> down. units are canvas/world pixels.",
     mode: state.mode,
     t: Number(state.t.toFixed(3)),
-    selectedBallId: state.selectedBallId,
+    counts: state.counts,
+    dropQueueRemaining: state.dropQueue.length,
     dropX: Number(state.dropX.toFixed(1)),
     board: {
       worldW: b.worldW,
@@ -233,4 +270,3 @@ function clamp(v, a, b) {
 function clampInt(v, a, b) {
   return Math.max(a, Math.min(b, v | 0));
 }
-

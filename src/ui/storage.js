@@ -1,6 +1,7 @@
 import { DEFAULT_BALLS } from "../game/assets.js";
 
 const KEY = "marble-roulette:balls:v1";
+const COUNTS_KEY = "marble-roulette:ball-counts:v1";
 
 export function loadBallsCatalog() {
   try {
@@ -36,3 +37,24 @@ export function restoreDefaultBalls() {
   return structuredClone(DEFAULT_BALLS);
 }
 
+export function loadBallCounts(ballsCatalog) {
+  const counts = {};
+  for (const b of ballsCatalog) counts[b.id] = 1;
+  try {
+    const raw = localStorage.getItem(COUNTS_KEY);
+    if (!raw) return counts;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return counts;
+    for (const b of ballsCatalog) {
+      const v = parsed[b.id];
+      if (typeof v === "number" && Number.isFinite(v)) counts[b.id] = Math.max(0, Math.min(99, v | 0));
+    }
+    return counts;
+  } catch {
+    return counts;
+  }
+}
+
+export function saveBallCounts(counts) {
+  localStorage.setItem(COUNTS_KEY, JSON.stringify(counts));
+}
