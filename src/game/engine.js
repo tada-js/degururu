@@ -21,19 +21,32 @@ export function makeBoard({
   topPad = 140,
   sidePad = 70,
   slotCount = 8,
-  slotH = 130
+  slotH = 130,
+  heightMultiplier = 1
 } = {}) {
+  const baseH = worldH;
+  const baseRows = rows;
+  const mul = Math.max(1, Math.floor(heightMultiplier));
+
+  worldH = baseH * mul;
+  rows = Math.max(6, baseRows * mul);
+
   const pegGapX = (worldW - sidePad * 2) / (cols - 1);
   const pegGapY = (worldH - topPad - slotH - 120) / (rows - 1);
   const pegs = [];
+  const pegRows = [];
   for (let r = 0; r < rows; r++) {
     const y = topPad + r * pegGapY;
     const offset = (r % 2) * (pegGapX / 2);
     const count = r % 2 ? cols - 1 : cols;
+    const rowPegs = [];
     for (let c = 0; c < count; c++) {
       const x = sidePad + c * pegGapX + offset;
-      pegs.push({ x, y, r: pegR });
+      const peg = { x, y, r: pegR };
+      pegs.push(peg);
+      rowPegs.push(peg);
     }
+    pegRows.push(rowPegs);
   }
 
   const slots = [];
@@ -60,6 +73,9 @@ export function makeBoard({
     slotH,
     slotW,
     pegs,
+    pegRows,
+    pegGapX,
+    pegGapY,
     slots
   };
 }
@@ -171,7 +187,7 @@ export function step(state, dt) {
   const restitution = 0.55;
   const air = 0.995;
 
-  const { worldW, worldH, slotH, pegs, slots, slotW } = state.board;
+  const { worldW, worldH, slotH, pegRows, slots, slotW, topPad, pegGapY } = state.board;
   const finishY = worldH - slotH;
 
   for (const m of state.marbles) {
@@ -192,19 +208,22 @@ export function step(state, dt) {
       m.vx = -Math.abs(m.vx) * restitution;
     }
 
-    // Peg collisions (fixed pegs).
-    for (const p of pegs) {
+    // Peg collisions (fixed pegs). Only check nearby rows for perf on tall boards.
+    const rCenter = clampInt(Math.round((m.y - topPad) / pegGapY), 0, pegRows.length - 1);
+    for (let rr = Math.max(0, rCenter - 2); rr <= Math.min(pegRows.length - 1, rCenter + 2); rr++) {
+      const row = pegRows[rr];
+      for (const p of row) {
       const dx = m.x - p.x;
       const dy = m.y - p.y;
-      const rr = m.r + p.r;
+      const sumR = m.r + p.r;
       const d2 = dx * dx + dy * dy;
-      if (d2 >= rr * rr) continue;
+      if (d2 >= sumR * sumR) continue;
       const d = Math.max(0.0001, Math.sqrt(d2));
       const nx = dx / d;
       const ny = dy / d;
 
       // Push out.
-      const push = rr - d;
+      const push = sumR - d;
       m.x += nx * push;
       m.y += ny * push;
 
@@ -220,6 +239,7 @@ export function step(state, dt) {
         m.vx -= vtX * 0.04;
         m.vy -= vtY * 0.04;
       }
+    }
     }
 
     // Marble-marble collisions (simple impulse).

@@ -6,16 +6,20 @@ export function makeRenderer(canvas, { board }) {
   const view = {
     scale: 1,
     ox: 0,
-    oy: 0
+    oy: 0,
+    cameraY: 0,
+    viewHWorld: board.worldH
   };
 
   function resizeToFit() {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
-    const s = Math.min(cssW / board.worldW, cssH / board.worldH);
+    // For tall boards, fit width and use a scrolling camera for Y.
+    const s = Math.min(cssW / board.worldW, 1.6);
     view.scale = s;
     view.ox = (cssW - board.worldW * s) / 2;
-    view.oy = (cssH - board.worldH * s) / 2;
+    view.oy = 0;
+    view.viewHWorld = cssH / s;
 
     const r = dpr();
     canvas.width = Math.floor(cssW * r);
@@ -24,10 +28,10 @@ export function makeRenderer(canvas, { board }) {
   }
 
   function worldToScreen(x, y) {
-    return { x: view.ox + x * view.scale, y: view.oy + y * view.scale };
+    return { x: view.ox + x * view.scale, y: view.oy + (y - view.cameraY) * view.scale };
   }
   function screenToWorld(x, y) {
-    return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale };
+    return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale + view.cameraY };
   }
 
   const bg = {
@@ -78,9 +82,29 @@ export function makeRenderer(canvas, { board }) {
   function draw(state, ballsCatalog, imagesById) {
     drawBoardBase();
 
+    // Camera follows the slowest (smallest y) unfinished marble so the "last finisher" stays in view.
+    // Camera never moves upward to avoid disorienting jumps.
+    if (state.mode === "playing" && state.released) {
+      let targetY = 0;
+      let found = false;
+      for (const m of state.marbles) {
+        if (m.done) continue;
+        if (!found || m.y < targetY) {
+          targetY = m.y;
+          found = true;
+        }
+      }
+      if (!found) targetY = board.worldH - board.slotH - view.viewHWorld;
+      const desired = clamp(targetY - view.viewHWorld * 0.35, 0, Math.max(0, board.worldH - view.viewHWorld));
+      view.cameraY = Math.max(view.cameraY, desired);
+    } else {
+      view.cameraY = 0;
+    }
+
     ctx.save();
     ctx.translate(view.ox, view.oy);
     ctx.scale(view.scale, view.scale);
+    ctx.translate(0, -view.cameraY);
 
     // Board frame.
     ctx.lineWidth = 3;
@@ -118,15 +142,22 @@ export function makeRenderer(canvas, { board }) {
     }
 
     // Pegs.
-    for (const p of board.pegs) {
-      ctx.fillStyle = "rgba(255,255,255,0.70)";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(0,0,0,0.22)";
-      ctx.beginPath();
-      ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
-      ctx.fill();
+    const yMin = view.cameraY - 60;
+    const yMax = view.cameraY + view.viewHWorld + 60;
+    const r0 = clampInt(Math.floor((yMin - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+    const r1 = clampInt(Math.ceil((yMax - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+    for (let rr = r0; rr <= r1; rr++) {
+      const row = board.pegRows[rr];
+      for (const p of row) {
+        ctx.fillStyle = "rgba(255,255,255,0.70)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(0,0,0,0.22)";
+        ctx.beginPath();
+        ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Drop guide.
@@ -135,7 +166,8 @@ export function makeRenderer(canvas, { board }) {
       ctx.lineWidth = 3;
       ctx.setLineDash([10, 10]);
       ctx.beginPath();
-      ctx.moveTo(state.dropX, 10);
+      // In world coords.
+      ctx.moveTo(state.dropX, view.cameraY + 10);
       ctx.lineTo(state.dropX, y0 - 30);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -210,4 +242,11 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+function clampInt(v, a, b) {
+  return Math.max(a, Math.min(b, v | 0));
 }

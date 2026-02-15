@@ -28,7 +28,7 @@ const settingsDialog = document.getElementById("settings-dialog");
 const settingsList = document.getElementById("settings-list");
 const restoreDefaultsBtn = document.getElementById("restore-defaults");
 
-const board = makeBoard();
+const board = makeBoard({ heightMultiplier: 10 });
 let ballsCatalog = loadBallsCatalog();
 saveBallsCatalog(ballsCatalog);
 
