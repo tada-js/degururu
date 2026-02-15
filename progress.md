@@ -1,0 +1,9 @@
+Original prompt: https://github.com/lazygyu/roulette 이 repo처럼 유사한 핀볼 사다리게임(마블룰렛)? 같은 게임을 만들고 싶어. 각 공들은 친근하게 동물들로 하고 싶어(강아지, 토끼, 햄스터). 그리고 각 공들의 이미지와 이름도 변경할 수도 있어야해. 기본적으론 동물 이미지와 동물 이름. 일단 이대로 개발 진행. GitHub에도 올릴거고 코드 리뷰와 검증은 CodeRabbit을 활용. CI도 자동으로 되게 flow를 짜줘. GitHub flow 브랜치 전략.
+
+TODO
+- Playwright 스모크 테스트를 실제로 돌리려면 `playwright` 설치가 필요(현재 환경은 네트워크 제한으로 설치/실행 불가).
+- 필요하면 GitHub Pages 배포 워크플로우 추가.
+
+Notes
+- 이 실행 환경에서는 로컬 HTTP 서버가 `listen EPERM`로 막혀 있어서(`127.0.0.1:5173` 바인딩 불가) 브라우저 스모크는 못 돌림. Node 기반 시뮬레이션 테스트(`node --test`)로 검증.
+
