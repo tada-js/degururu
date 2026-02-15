@@ -453,40 +453,11 @@ function drawArrow(ctx, x, y, dir) {
 function corridorAt(board, y) {
   const c = board.corridor;
   if (!c) return { left: 0, right: board.worldW };
-  const segs = c.segments || [];
-  if (!segs.length) return { left: 0, right: board.worldW };
-
-  let i = 0;
-  for (; i < segs.length; i++) {
-    if (y < segs[i].y1) break;
-  }
-  i = clampInt(i, 0, segs.length - 1);
-  const a = segs[i];
-  const t = c.transition || 120;
-  let cx = a.centerX;
-  let hw = a.halfWidth;
-
-  if (i + 1 < segs.length) {
-    const b = segs[i + 1];
-    const edge = a.y1;
-    if (y > edge - t) {
-      const u = smoothstep((y - (edge - t)) / t);
-      cx = lerp(a.centerX, b.centerX, u);
-      hw = lerp(a.halfWidth, b.halfWidth, u);
-    }
-  }
-  if (i > 0) {
-    const p = segs[i - 1];
-    const edge = a.y0;
-    if (y < edge + t) {
-      const u = smoothstep(1 - (y - edge) / t);
-      cx = lerp(a.centerX, p.centerX, u);
-      hw = lerp(a.halfWidth, p.halfWidth, u);
-    }
-  }
-  const left = clamp(cx - hw, 0, board.worldW);
-  const right = clamp(cx + hw, 0, board.worldW);
-  return { left: Math.min(left, right), right: Math.max(left, right) };
+  const cx = c.worldW / 2;
+  const t = clamp((y - c.startY) / (c.endY - c.startY), 0, 1);
+  const u = smoothstep(t);
+  const hw = lerp(c.wideHalf, c.narrowHalf, u);
+  return { left: clamp(cx - hw, 0, board.worldW), right: clamp(cx + hw, 0, board.worldW) };
 }
 
 function smoothstep(x) {

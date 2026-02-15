@@ -624,72 +624,41 @@ function lerp(a, b, t) {
 }
 
 function makeCorridor({ worldW, worldH, ballR }) {
-  const segments = [];
   const wideHalf = worldW / 2;
   const narrowW = ballR * 7.2; // ~2-3 balls through, depending on scale.
   const narrowHalf = Math.min(wideHalf, Math.max(narrowW / 2, ballR * 2.8));
-  const span = worldH - 220; // avoid very top
-  const n = 7;
-  const segH = span / n;
-  let y = 120;
-  for (let i = 0; i < n; i++) {
-    const y0 = y;
-    const y1 = y0 + segH;
-    const isNarrow = i % 2 === 1;
-    const halfWidth = isNarrow ? narrowHalf : wideHalf;
-    const centerX = worldW / 2 + (isNarrow ? (i % 4 === 1 ? -worldW * 0.12 : worldW * 0.12) : 0);
-    segments.push({
-      y0,
-      y1,
-      centerX,
-      halfWidth,
-      clear: isNarrow // remove objects in narrow zones
-    });
-    y = y1;
+
+  // Funnel profile: monotonically narrows from top -> bottom.
+  const startY = 120;
+  const endY = worldH - 220;
+
+  // Fixed "clear" bands where we remove objects for custom designs later.
+  const bandH = Math.max(220, ballR * 18);
+  const bands = [];
+  for (const t of [0.28, 0.58, 0.86]) {
+    const cy = lerp(startY, endY, t);
+    bands.push({ y0: cy - bandH / 2, y1: cy + bandH / 2 });
   }
-  return { worldW, segments, transition: Math.max(120, ballR * 10) };
+
+  return { worldW, startY, endY, wideHalf, narrowHalf, clearBands: bands };
 }
 
 function isClearZone(corridor, y) {
-  const seg = corridor.segments.find((s) => y >= s.y0 && y < s.y1);
-  return !!seg?.clear;
+  for (const b of corridor.clearBands || []) {
+    if (y >= b.y0 && y <= b.y1) return true;
+  }
+  return false;
 }
 
 function corridorAt(corridor, y) {
-  const segs = corridor.segments;
-  if (!segs.length) return { left: 0, right: 0 };
-  // find segment index
-  let i = 0;
-  for (; i < segs.length; i++) {
-    if (y < segs[i].y1) break;
-  }
-  i = clampInt(i, 0, segs.length - 1);
-  const a = segs[i];
-  const t = corridor.transition;
-  // blend with next segment near boundary
-  let cx = a.centerX;
-  let hw = a.halfWidth;
-  if (i + 1 < segs.length) {
-    const b = segs[i + 1];
-    const edge = a.y1;
-    if (y > edge - t) {
-      const u = smoothstep((y - (edge - t)) / t);
-      cx = lerp(a.centerX, b.centerX, u);
-      hw = lerp(a.halfWidth, b.halfWidth, u);
-    }
-  }
-  if (i > 0) {
-    const p = segs[i - 1];
-    const edge = a.y0;
-    if (y < edge + t) {
-      const u = smoothstep(1 - (y - edge) / t);
-      cx = lerp(a.centerX, p.centerX, u);
-      hw = lerp(a.halfWidth, p.halfWidth, u);
-    }
-  }
+  const cx = corridor.worldW / 2;
+  const t = clamp((y - corridor.startY) / (corridor.endY - corridor.startY), 0, 1);
+  // Smooth but steady narrowing.
+  const u = smoothstep(t);
+  const hw = lerp(corridor.wideHalf, corridor.narrowHalf, u);
   const left = clamp(cx - hw, 0, corridor.worldW);
   const right = clamp(cx + hw, 0, corridor.worldW);
-  return { left: Math.min(left, right), right: Math.max(left, right) };
+  return { left, right };
 }
 
 function smoothstep(x) {
