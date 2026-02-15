@@ -2,8 +2,6 @@
 
 import { useEffect, useRef } from "react";
 
-import { Button } from "@/components/ui/button";
-
 export default function GameClient() {
   const bootedRef = useRef(false);
 
@@ -25,19 +23,22 @@ export default function GameClient() {
           <div className="brand__subtitle">공으로 즐기는 핀볼 사다리</div>
         </div>
         <div className="topbar__actions">
-          <Button id="bgm-btn" variant="ghost" type="button" aria-pressed="false">
+          <button id="settings-btn" className="btn btn--ghost" type="button">
+            설정
+          </button>
+          <button id="bgm-btn" className="btn btn--ghost" type="button" aria-pressed="false">
             BGM 끔
-          </Button>
-          <Button id="winner-btn" variant="ghost" type="button" disabled>
+          </button>
+          <button id="reset-btn" className="btn btn--ghost" type="button">
+            초기화
+          </button>
+          <button id="winner-btn" className="btn btn--ghost" type="button" disabled>
             마지막 결과
-          </Button>
+          </button>
           <span className="topbar__divider" aria-hidden="true" />
-          <Button id="settings-btn" variant="settings" type="button">
-            공 설정
-          </Button>
-          <Button id="start-btn" variant="primary" type="button" className="topbar__start">
+          <button id="start-btn" className="btn btn--primary topbar__start" type="button">
             시작
-          </Button>
+          </button>
         </div>
       </header>
 
@@ -60,9 +61,15 @@ export default function GameClient() {
               </label>
             </div>
             <canvas id="minimap" width={260} height={190} />
-            <div className="mini__hint" id="minimap-hint" />
+            <div className="mini__hint" id="minimap-hint">
+              미니맵을 클릭해 이동. 후미 추적으로 자동 추적을 재개합니다.
+            </div>
+          </div>
+          <div className="hud__hint" id="hint">
+            시작을 누르면 선택한 공이 한 번에 떨어집니다.
           </div>
           <div className="balls" id="balls" />
+          <div className="result" id="result" aria-live="polite" />
         </div>
 
         <div className="board">
@@ -71,74 +78,85 @@ export default function GameClient() {
             <div className="board__coordText" id="canvas-coord-readout">
               xFrac: -, yFrac: -
             </div>
-            <Button id="canvas-coord-copy" variant="ghost" className="board__copy" type="button" disabled>
+            <button id="canvas-coord-copy" className="btn btn--ghost board__copy" type="button" disabled>
               좌표 복사
-            </Button>
+            </button>
           </div>
         </div>
       </main>
 
       <dialog id="settings-dialog" className="dialog dialog--settings">
-        <form method="dialog" className="twModal" id="settings-form">
-          <div className="twModal__card">
-            <div className="twModal__header">
-              <div className="twModal__headText">
-                <div className="twModal__title">공 설정</div>
-                <div className="twModal__desc">공을 추가/삭제하고, 이름과 이미지를 바꿀 수 있어요.</div>
-              </div>
-              <button className="twModal__close" value="close" type="submit" aria-label="닫기">
-                ×
-              </button>
-            </div>
+        <form method="dialog" className="settingsModal" id="settings-form">
+          <div className="winner__frame winner__frame--settings">
+            <div className="winner__fx" aria-hidden="true" />
+            <button className="winner__close" value="close" type="submit" aria-label="닫기">
+              ×
+            </button>
 
-            <div className="twModal__body">
-              <div className="twList" id="settings-list" />
-            </div>
+            <div className="winner__badge">설정</div>
+            <div className="winner__title">공 설정</div>
+            <div className="winner__sub">이름/이미지를 바꾸고 수량을 조절할 수 있어요.</div>
 
-          <div className="twModal__footer">
-              <Button id="add-ball" variant="ghost" type="button">
+            <div className="settings__list settings__list--modal" id="settings-list" />
+
+            <div className="settings__actions settings__actions--modal">
+              <button id="add-ball" className="btn btn--ghost" type="button">
                 공 추가
-              </Button>
-              <Button id="restore-defaults" variant="ghost" type="button">
+              </button>
+              <button id="restore-defaults" className="btn btn--ghost" type="button">
                 기본값 복원
-              </Button>
-              <Button variant="primary" value="close" type="submit">
-                닫기
-              </Button>
+              </button>
             </div>
           </div>
         </form>
       </dialog>
 
       <dialog id="winner-dialog" className="dialog dialog--winner">
-        <form method="dialog" className="twModal" id="winner-form">
-          <div className="twModal__card">
-            <div className="twModal__header">
-              <div className="twModal__headText">
-                <div className="twModal__title">마지막 결과</div>
-                <div className="twModal__desc">마지막으로 도착한 공을 확인하세요.</div>
+        <form method="dialog" className="winner" id="winner-form">
+          <div className="winner__frame">
+            <div className="winner__fx" aria-hidden="true" />
+            <div className="winner__confetti" aria-hidden="true">
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+              <span className="c" />
+            </div>
+            <button className="winner__close" value="close" type="submit" aria-label="닫기">
+              ×
+            </button>
+
+            <div className="winner__badge">마지막 도착</div>
+            <div className="winner__title" id="winner-title" />
+            <div className="winner__sub" id="winner-sub" />
+
+            <div className="winner__grid">
+              <div className="winner__thumb">
+                <img id="winner-img" alt="" />
               </div>
-              <button className="twModal__close" value="close" type="submit" aria-label="닫기">
-                ×
-              </button>
+              <div className="winner__meta">
+                <div className="winner__metaRow">
+                  <div className="winner__metaK">공</div>
+                  <div className="winner__metaV" id="winner-name" />
+                </div>
+                <div className="winner__metaRow">
+                  <div className="winner__metaK">도착 순서</div>
+                  <div className="winner__metaV" id="winner-order" />
+                </div>
+              </div>
             </div>
 
-            <div className="twModal__body">
-              <div className="twWinner">
-                <div className="twWinner__thumb">
-                  <img id="winner-img" src="data:," alt="" />
-                </div>
-                <div className="twWinner__copy">
-                  <div className="twWinner__k">마지막 도착</div>
-                  <div className="twWinner__v" id="winner-name" />
-                </div>
-              </div>
-            </div>
-
-            <div className="twModal__footer">
-              <Button variant="primary" value="close" type="submit">
+            <div className="winner__actions">
+              <button className="btn btn--primary" value="close" type="submit">
                 확인
-              </Button>
+              </button>
             </div>
           </div>
         </form>
