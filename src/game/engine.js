@@ -432,17 +432,34 @@ export function step(state, dt) {
       }
     }
 
-    // Unstuck: if a marble becomes nearly stationary for too long, give it a deterministic nudge.
+    // Unstuck: if a marble makes almost no downward progress over a time window (even if it's "moving" by jittering),
+    // give it a deterministic nudge. This prevents permanent jams on fixed layouts with large counts.
     for (const m of state.marbles) {
       if (m.done) continue;
-      const sp = Math.hypot(m.vx, m.vy);
-      if (sp < 14) m._stuckMs = (m._stuckMs || 0) + dtSub * 1000;
-      else m._stuckMs = 0;
-      if (m._stuckMs > 1400) {
+      if (m._winMs == null) {
+        m._winMs = 0;
+        m._winY0 = m.y;
+        m._winYMin = m.y;
+        m._winYMax = m.y;
+      }
+      m._winMs += dtSub * 1000;
+      m._winYMin = Math.min(m._winYMin, m.y);
+      m._winYMax = Math.max(m._winYMax, m.y);
+      if (m._winMs < 900) continue;
+
+      const dyNet = m.y - m._winY0;
+      const yRange = m._winYMax - m._winYMin;
+      m._winMs = 0;
+      m._winY0 = m.y;
+      m._winYMin = m.y;
+      m._winYMax = m.y;
+
+      // If we barely progressed and we're oscillating inside a tight pocket, kick it out.
+      if (dyNet < 25 && yRange < 120) {
         const dir = hash01(m.id) < 0.5 ? -1 : 1;
-        m.vx += dir * 120;
-        m.vy += 260;
-        m._stuckMs = 0;
+        // Prefer a strong downward kick with only a small lateral separation.
+        m.vx = m.vx * 0.35 + dir * 40;
+        m.vy = Math.max(m.vy, 0) + 520;
       }
     }
 
@@ -953,7 +970,8 @@ function makeZigzagLayout({ worldW, worldH, slotH, ballR = 18 }) {
   // Keep the corridor narrow enough to induce wall interaction (avoid long straight falls),
   // but wide enough to let several marbles pass without constant deadlocks.
   const maxHalf = Math.max(80, worldW / 2 - padX - 6);
-  const narrowHalfA = clamp(Math.max(ballR * 6.2, 120), 80, Math.min(maxHalf, worldW * 0.22));
+  // Slightly wider than the absolute minimum: reduces multi-marble deadlocks while keeping wall interactions frequent.
+  const narrowHalfA = clamp(Math.max(ballR * 6.8, 132), 96, Math.min(maxHalf, worldW * 0.24));
   // Slightly widen the post-mix corridor to reduce pile-up deadlocks.
   const narrowHalfB = clamp(narrowHalfA * 1.18, narrowHalfA, Math.min(maxHalf, worldW * 0.28));
   const wideHalf = clamp(Math.max(320, narrowHalfA * 2.9), narrowHalfA * 2.2, Math.min(maxHalf, worldW * 0.46));
@@ -968,15 +986,17 @@ function makeZigzagLayout({ worldW, worldH, slotH, ballR = 18 }) {
     // Wide, fair start corridor (no forced left/right bias at spawn).
     k(0.00, 0.50, wideHalf),
     k(0.08, 0.50, wideHalf),
-    k(0.14, 0.50, narrowHalfA),
+    // Stay wide a bit longer so dense drops can spread before the first pinch/zigzag.
+    k(0.16, 0.50, wideHalf),
+    k(0.22, 0.50, narrowHalfA),
 
     // Start zigzag after the initial straight.
-    k(0.20, 0.30, narrowHalfA),
-    k(0.26, 0.70, narrowHalfA),
-    k(0.32, 0.28, narrowHalfA),
-    k(0.38, 0.72, narrowHalfA),
-    k(0.46, 0.32, narrowHalfA),
-    k(0.54, 0.68, narrowHalfA),
+    k(0.28, 0.30, narrowHalfA),
+    k(0.34, 0.70, narrowHalfA),
+    k(0.40, 0.28, narrowHalfA),
+    k(0.46, 0.72, narrowHalfA),
+    k(0.52, 0.32, narrowHalfA),
+    k(0.58, 0.68, narrowHalfA),
 
     // Mixing chamber (wide).
     k(0.60, 0.52, wideHalf),
@@ -1028,15 +1048,18 @@ function makeZigzagLayout({ worldW, worldH, slotH, ballR = 18 }) {
   const propLen = Math.max(240, hw * 1.55);
   // Early propeller near the start (inside the wide corridor) to reshuffle early,
   // but tuned to never "trap" marbles: shorter blade, gentler rotation, no tangential shove.
-  const earlyY = ky(0.105);
+  const earlyY = ky(0.135);
   const early = profileAt(earlyY);
-  const earlyClear = Math.max(ballR * 4.2, 74);
-  const earlyLen = clamp(early.hw * 2 - earlyClear * 2, 140, early.hw * 1.05);
+  // Length: extend nearly to walls so most/all marbles must interact at least once.
+  // Keep a small clearance so the blade does not collide with walls numerically and marbles can still drain.
+  const earlyClear = Math.max(ballR * 1.7 + 14, 40);
+  const earlyLen = clamp(early.hw * 2 - earlyClear * 2, 220, early.hw * 1.95);
 
   const propellers = [
-    { x: early.cx, y: earlyY, len: earlyLen, omega: 0.9, phase: Math.PI / 4, mix: 0, down: 34, maxUp: 60, bounce: 0.06 },
+    // Early propeller acts like a gentle "mixing gate": forces interaction but avoids throwing marbles upward.
+    { x: early.cx, y: earlyY, len: earlyLen, omega: 0.85, phase: Math.PI / 4, mix: 0, down: 78, maxUp: 0, bounce: 0.03, maxSurf: 240 },
     // Single rotating bar: mixes but still lets marbles drain without getting trapped behind a "cross".
-    { x: cx, y: mixY, len: propLen, omega: 1.1, phase: 0, mix: 8, down: 18, maxUp: 110 }
+    { x: cx, y: mixY, len: propLen, omega: 1.1, phase: 0, mix: 8, down: 18, maxUp: 110, maxSurf: 520 }
   ];
 
   return {
@@ -1400,8 +1423,17 @@ function resolvePropeller(state, m, p, restitution) {
   const rx = cx - p.x;
   const ry = cy - p.y;
   const omega = p.omega || 0;
-  const vSurfX = -omega * ry;
-  const vSurfY = omega * rx;
+  let vSurfX = -omega * ry;
+  let vSurfY = omega * rx;
+  const maxSurf = Number.isFinite(p.maxSurf) ? p.maxSurf : Infinity;
+  if (Number.isFinite(maxSurf) && maxSurf > 0) {
+    const vmag = Math.hypot(vSurfX, vSurfY);
+    if (vmag > maxSurf) {
+      const k = maxSurf / vmag;
+      vSurfX *= k;
+      vSurfY *= k;
+    }
+  }
 
   // Reflect relative velocity against the propeller surface.
   const rvx = m.vx - vSurfX;
