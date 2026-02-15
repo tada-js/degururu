@@ -75,7 +75,11 @@ export function makeGameState({ seed = 1234, board = makeBoard(), ballsCatalog =
     board,
     ballsCatalog,
     counts,
-    dropQueue: [],
+    pending: [],
+    released: false,
+    totalToDrop: 0,
+    finished: [],
+    winner: null,
     dropX: board.worldW / 2,
     marbles: [],
     lastResult: null
@@ -112,13 +116,13 @@ export function prepareDropQueue(state, { shuffle = true } = {}) {
       [queue[i], queue[j]] = [queue[j], queue[i]];
     }
   }
-  state.dropQueue = queue;
   return queue;
 }
 
 export function setDropX(state, x) {
   const pad = state.board.ballR + 2;
   state.dropX = clamp(x, pad, state.board.worldW - pad);
+  if (state.mode === "playing" && !state.released) layoutPending(state);
 }
 
 export function startGame(state) {
@@ -126,7 +130,14 @@ export function startGame(state) {
   state.t = 0;
   state.marbles = [];
   state.lastResult = null;
-  prepareDropQueue(state, { shuffle: true });
+  state.finished = [];
+  state.winner = null;
+  state.released = false;
+
+  const queue = prepareDropQueue(state, { shuffle: true });
+  state.totalToDrop = queue.length;
+  state.pending = queue.map((ballId, i) => makePendingMarble(state, ballId, i));
+  layoutPending(state);
 }
 
 export function resetGame(state) {
@@ -134,33 +145,22 @@ export function resetGame(state) {
   state.t = 0;
   state.marbles = [];
   state.lastResult = null;
-  state.dropQueue = [];
+  state.pending = [];
+  state.released = false;
+  state.totalToDrop = 0;
+  state.finished = [];
+  state.winner = null;
 }
 
-export function dropMarble(state) {
+export function dropAll(state) {
   if (state.mode !== "playing") return null;
-  const nextId = state.dropQueue.shift();
-  if (!nextId) return null;
-  const ball = state.ballsCatalog.find((b) => b.id === nextId);
-  if (!ball) return null;
-
-  // Add tiny seeded jitter so consecutive balls don't perfectly overlap.
-  const jx = (state.rng() - 0.5) * 6;
-  const id = `m_${Math.floor(state.t * 1000)}_${Math.floor(state.rng() * 1e9)}`;
-  const marble = {
-    id,
-    ballId: ball.id,
-    name: ball.name,
-    x: state.dropX + jx,
-    y: 60,
-    vx: (state.rng() - 0.5) * 20,
-    vy: 0,
-    r: state.board.ballR,
-    done: false,
-    result: null
-  };
-  state.marbles.push(marble);
-  return marble;
+  if (state.released) return 0;
+  if (!state.pending.length) return 0;
+  state.released = true;
+  state.marbles.push(...state.pending);
+  const n = state.pending.length;
+  state.pending = [];
+  return n;
 }
 
 export function step(state, dt) {
@@ -222,12 +222,48 @@ export function step(state, dt) {
       }
     }
 
+    // Marble-marble collisions (simple impulse).
+    // This keeps the "all drop together" case from looking like ghosts.
+    for (const o of state.marbles) {
+      if (o === m || o.done) continue;
+      const dx = m.x - o.x;
+      const dy = m.y - o.y;
+      const rr = m.r + o.r;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= rr * rr || d2 === 0) continue;
+      const d = Math.sqrt(d2);
+      const nx = dx / d;
+      const ny = dy / d;
+      const push = (rr - d) * 0.5;
+      m.x += nx * push;
+      m.y += ny * push;
+      o.x -= nx * push;
+      o.y -= ny * push;
+
+      const rvx = m.vx - o.vx;
+      const rvy = m.vy - o.vy;
+      const vn = rvx * nx + rvy * ny;
+      if (vn < 0) {
+        const j = -(1 + restitution) * vn * 0.5; // equal mass
+        m.vx += j * nx;
+        m.vy += j * ny;
+        o.vx -= j * nx;
+        o.vy -= j * ny;
+      }
+    }
+
     // Finish line -> slot result.
     if (m.y + m.r >= finishY) {
       const idx = clampInt(Math.floor(m.x / slotW), 0, slots.length - 1);
       m.done = true;
       m.result = { slot: idx, label: slots[idx].label };
       state.lastResult = { marbleId: m.id, ballId: m.ballId, ...m.result };
+      state.finished.push({ marbleId: m.id, ballId: m.ballId, t: state.t, ...m.result });
+      if (state.released && state.totalToDrop > 0 && state.finished.length === state.totalToDrop) {
+        // Winner: the one who arrives last (max finish time). With simultaneous drop, this is also the last finish event.
+        const last = state.finished.reduce((a, b) => (a.t >= b.t ? a : b));
+        state.winner = last;
+      }
       m.y = finishY - m.r;
       m.vx = 0;
       m.vy = 0;
@@ -242,7 +278,11 @@ export function snapshotForText(state) {
     mode: state.mode,
     t: Number(state.t.toFixed(3)),
     counts: state.counts,
-    dropQueueRemaining: state.dropQueue.length,
+    pendingCount: state.pending.length,
+    released: state.released,
+    totalToDrop: state.totalToDrop,
+    finishedCount: state.finished.length,
+    winner: state.winner,
     dropX: Number(state.dropX.toFixed(1)),
     board: {
       worldW: b.worldW,
@@ -269,4 +309,40 @@ function clamp(v, a, b) {
 }
 function clampInt(v, a, b) {
   return Math.max(a, Math.min(b, v | 0));
+}
+
+function makePendingMarble(state, ballId, idx) {
+  const ball = state.ballsCatalog.find((b) => b.id === ballId);
+  if (!ball) throw new Error(`unknown ballId: ${ballId}`);
+  // Seeded jitter so marbles start slightly different even when dropped together.
+  const jx = (state.rng() - 0.5) * 10;
+  const id = `m_${idx}_${Math.floor(state.rng() * 1e9)}`;
+  return {
+    id,
+    ballId: ball.id,
+    name: ball.name,
+    x: state.dropX + jx,
+    y: 70,
+    vx: (state.rng() - 0.5) * 10,
+    vy: 0,
+    r: state.board.ballR,
+    done: false,
+    result: null
+  };
+}
+
+function layoutPending(state) {
+  const { worldW, ballR } = state.board;
+  const n = state.pending.length;
+  if (!n) return;
+  const gap = ballR * 2.2;
+  const perRow = Math.max(1, Math.floor((worldW - ballR * 2) / gap));
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / perRow);
+    const col = i % perRow;
+    const colsInThisRow = Math.min(perRow, n - row * perRow);
+    const x0 = state.dropX - ((colsInThisRow - 1) * gap) / 2;
+    state.pending[i].x = clamp(x0 + col * gap, ballR + 2, worldW - ballR - 2);
+    state.pending[i].y = 70 - row * (ballR * 1.9);
+  }
 }

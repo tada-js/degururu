@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeBoard, makeGameState, startGame, setDropX, dropMarble, setBallCount, step } from "../src/game/engine.js";
+import { makeBoard, makeGameState, startGame, setDropX, dropAll, setBallCount, step } from "../src/game/engine.js";
 
-test("drops resolve into deterministic slots (with fixed seed and dropX)", () => {
+test("dropAll releases all marbles and winner is the last finisher", () => {
   const board = makeBoard({ slotCount: 8 });
   const ballsCatalog = [
     { id: "dog", name: "강아지", imageDataUrl: "data:image/svg+xml;utf8,<svg/>", tint: "#fff" }
@@ -11,17 +11,15 @@ test("drops resolve into deterministic slots (with fixed seed and dropX)", () =>
   setBallCount(state, "dog", 5);
   startGame(state);
 
-  const drops = [120, 260, 450, 630, 820];
-  const results = [];
-  for (const x of drops) {
-    setDropX(state, x);
-    const m = dropMarble(state);
-    assert.ok(m);
-    for (let i = 0; i < 60 * 10; i++) step(state, 1 / 60);
-    assert.ok(m.done, "marble should finish within 10s");
-    results.push(m.result.slot);
-  }
+  setDropX(state, 450);
+  assert.equal(state.pending.length, 5);
+  const n = dropAll(state);
+  assert.equal(n, 5);
+  assert.equal(state.pending.length, 0);
+  assert.equal(state.marbles.length, 5);
 
-  // This is a regression snapshot. If physics changes, update intentionally.
-  assert.deepEqual(results, [3, 3, 3, 7, 7]);
+  for (let i = 0; i < 60 * 12; i++) step(state, 1 / 60);
+  assert.equal(state.finished.length, 5);
+  assert.ok(state.winner);
+  assert.equal(state.winner.t, Math.max(...state.finished.map((x) => x.t)));
 });

@@ -141,8 +141,8 @@ export function makeRenderer(canvas, { board }) {
       ctx.setLineDash([]);
     }
 
-    // Marbles.
-    for (const m of state.marbles) {
+    // Marbles (pending + active).
+    for (const m of [...(state.pending || []), ...state.marbles]) {
       const meta = ballsCatalog.find((b) => b.id === m.ballId);
       const img = imagesById.get(m.ballId);
       const r = m.r;
@@ -211,4 +211,3 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
 }
-

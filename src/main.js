@@ -6,7 +6,7 @@ import {
   snapshotForText,
   startGame,
   step,
-  dropMarble,
+  dropAll,
   getBallCount,
   getTotalSelectedCount,
   setBallCount
@@ -120,6 +120,10 @@ function renderBallCards() {
     minus.addEventListener("click", () => applyDelta(-1));
     plus.addEventListener("click", () => applyDelta(+1));
 
+    const disabled = state.mode === "playing";
+    minus.disabled = disabled;
+    plus.disabled = disabled;
+
     qty.appendChild(minus);
     qty.appendChild(count);
     qty.appendChild(plus);
@@ -134,11 +138,13 @@ renderBallCards();
 
 function updateControls() {
   const total = getTotalSelectedCount(state);
-  dropBtn.disabled = state.mode !== "playing" || state.dropQueue.length === 0;
+  dropBtn.disabled = state.mode !== "playing" || state.released || state.pending.length === 0;
   startBtn.disabled = state.mode === "playing";
   hintEl.textContent =
     state.mode === "playing"
-      ? `Click the board to set drop position. Then press DROP. Remaining: ${state.dropQueue.length}`
+      ? state.released
+        ? `Dropping... Finished: ${state.finished.length}/${state.totalToDrop}`
+        : `Click the board to set drop position. Press DROP to release all (${state.pending.length}).`
       : `Select counts (+/-), then press Start. Total selected: ${total}`;
 }
 
@@ -154,6 +160,7 @@ startBtn.addEventListener("click", () => {
   startGame(state);
   state._shownResultId = null;
   setResultText("");
+  renderBallCards(); // disable +/- while playing
   updateControls();
 });
 
@@ -161,6 +168,7 @@ resetBtn.addEventListener("click", () => {
   resetGame(state);
   state._shownResultId = null;
   setResultText("");
+  renderBallCards();
   updateControls();
 });
 
@@ -169,9 +177,9 @@ settingsBtn.addEventListener("click", () => {
 });
 
 dropBtn.addEventListener("click", () => {
-  const m = dropMarble(state);
-  if (!m) return;
-  setResultText(`Dropped: ${m.name} (remaining: ${state.dropQueue.length})`);
+  const n = dropAll(state);
+  if (!n) return;
+  setResultText(`Dropped: ${n} marbles`);
 });
 
 function canvasPointerToWorld(e) {
@@ -211,6 +219,11 @@ function onAfterFrame() {
     state._shownResultId = state.lastResult.marbleId;
     const b = ballsCatalog.find((x) => x.id === state.lastResult.ballId);
     setResultText(`Result: ${b?.name || state.lastResult.ballId} -> ${state.lastResult.label}`);
+  }
+  if (state.winner && state._shownWinnerT !== state.winner.t) {
+    state._shownWinnerT = state.winner.t;
+    const b = ballsCatalog.find((x) => x.id === state.winner.ballId);
+    setResultText(`Winner (last to arrive): ${b?.name || state.winner.ballId} -> ${state.winner.label}`);
   }
   updateControls();
 }
