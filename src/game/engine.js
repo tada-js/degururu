@@ -1026,9 +1026,17 @@ function makeZigzagLayout({ worldW, worldH, slotH, ballR = 18 }) {
   const { cx, hw } = profileAt(mixY);
   // Leave some side clearance so marbles can bypass the blades.
   const propLen = Math.max(240, hw * 1.55);
+  // Early propeller near the start (inside the wide corridor) to reshuffle early,
+  // but tuned to never "trap" marbles: shorter blade, gentler rotation, no tangential shove.
+  const earlyY = ky(0.105);
+  const early = profileAt(earlyY);
+  const earlyClear = Math.max(ballR * 4.2, 74);
+  const earlyLen = clamp(early.hw * 2 - earlyClear * 2, 140, early.hw * 1.05);
+
   const propellers = [
+    { x: early.cx, y: earlyY, len: earlyLen, omega: 0.9, phase: Math.PI / 4, mix: 0, down: 34, maxUp: 60, bounce: 0.06 },
     // Single rotating bar: mixes but still lets marbles drain without getting trapped behind a "cross".
-    { x: cx, y: mixY, len: propLen, omega: 1.2, phase: 0 }
+    { x: cx, y: mixY, len: propLen, omega: 1.1, phase: 0, mix: 8, down: 18, maxUp: 110 }
   ];
 
   return {
@@ -1400,7 +1408,7 @@ function resolvePropeller(state, m, p, restitution) {
   const rvy = m.vy - vSurfY;
   const vn = rvx * nx + rvy * ny;
   if (vn < 0) {
-    const bounce = 0.22; // propeller is more "paddly" than bouncy
+    const bounce = Number.isFinite(p.bounce) ? p.bounce : 0.10; // propeller is more "paddly" than bouncy
     m.vx = rvx - (1 + bounce) * vn * nx + vSurfX;
     m.vy = rvy - (1 + bounce) * vn * ny + vSurfY;
   }
@@ -1409,11 +1417,15 @@ function resolvePropeller(state, m, p, restitution) {
   const tx = -ny;
   const ty = nx;
   const vt = (m.vx - vSurfX) * tx + (m.vy - vSurfY) * ty;
-  const mix = 8;
+  const mix = Number.isFinite(p.mix) ? p.mix : 8;
+  const down = Number.isFinite(p.down) ? p.down : 18;
   m.vx += tx * (mix * Math.sign(vt || 1));
   m.vy += ty * (mix * Math.sign(vt || 1));
-  // Bias slightly downward so marbles don't orbit forever inside the chamber.
-  m.vy += 18;
+  // Downward bias helps keep the simulation draining even with many marbles.
+  m.vy += down;
+  // Prevent propellers from launching marbles far upward (can cause top-side pileups).
+  const maxUp = Number.isFinite(p.maxUp) ? p.maxUp : 120; // px/s
+  m.vy = Math.max(m.vy, -maxUp);
 
   state.stats.propellerContacts++;
 }
