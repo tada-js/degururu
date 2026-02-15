@@ -119,6 +119,31 @@ export function makeRenderer(canvas, { board }) {
     ctx.fill();
     ctx.stroke();
 
+    // Roulette-style map polylines (walls / dividers).
+    if (board.roulette?.entities?.length) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 6;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.setLineDash([12, 10]);
+      for (const e of board.roulette.entities) {
+        if (e.type !== "polyline" || !Array.isArray(e.points) || e.points.length < 2) continue;
+        const y0e = e.points[0][1];
+        const y1e = e.points[e.points.length - 1][1];
+        // Basic cull (outer walls span everything anyway).
+        if (Math.max(y0e, y1e) < view.cameraY - 200 || Math.min(y0e, y1e) > view.cameraY + view.viewHWorld + 200) {
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(e.points[0][0], e.points[0][1]);
+        for (let i = 1; i < e.points.length; i++) ctx.lineTo(e.points[i][0], e.points[i][1]);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     // Variable-width corridor walls.
     if (board.corridor) {
       const y0v = clamp(view.cameraY - 60, 0, board.worldH);
@@ -212,21 +237,23 @@ export function makeRenderer(canvas, { board }) {
     }
 
     // Pegs.
-    const yMin = view.cameraY - 60;
-    const yMax = view.cameraY + view.viewHWorld + 60;
-    const r0 = clampInt(Math.floor((yMin - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
-    const r1 = clampInt(Math.ceil((yMax - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
-    for (let rr = r0; rr <= r1; rr++) {
-      const row = board.pegRows[rr];
-      for (const p of row) {
-        ctx.fillStyle = "rgba(255,255,255,0.70)";
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(0,0,0,0.22)";
-        ctx.beginPath();
-        ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
-        ctx.fill();
+    if (board.pegRows && board.pegRows.length) {
+      const yMin = view.cameraY - 60;
+      const yMax = view.cameraY + view.viewHWorld + 60;
+      const r0 = clampInt(Math.floor((yMin - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+      const r1 = clampInt(Math.ceil((yMax - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+      for (let rr = r0; rr <= r1; rr++) {
+        const row = board.pegRows[rr];
+        for (const p of row) {
+          ctx.fillStyle = "rgba(255,255,255,0.70)";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(0,0,0,0.22)";
+          ctx.beginPath();
+          ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
 

@@ -27,12 +27,13 @@ const hintEl = document.getElementById("hint");
 const minimap = document.getElementById("minimap");
 const followBtn = document.getElementById("follow-btn");
 const minimapHintEl = document.getElementById("minimap-hint");
+const legendEl = document.querySelector(".legend");
 
 const settingsDialog = document.getElementById("settings-dialog");
 const settingsList = document.getElementById("settings-list");
 const restoreDefaultsBtn = document.getElementById("restore-defaults");
 
-const board = makeBoard({ heightMultiplier: 10, elementScale: 0.85 });
+const board = makeBoard({ layout: "roulette", heightMultiplier: 10, elementScale: 0.85 });
 let ballsCatalog = loadBallsCatalog();
 saveBallsCatalog(ballsCatalog);
 
@@ -155,6 +156,8 @@ function updateControls() {
         ? `Dropping... Finished: ${state.finished.length}/${state.totalToDrop}`
         : `Click the board to set drop position. Press DROP to release all (${state.pending.length}).`
       : `Select counts (+/-), then press Start. Total selected: ${total}`;
+
+  if (legendEl) legendEl.hidden = !state.chaos?.enabled;
 }
 
 function setResultText(msg) {
