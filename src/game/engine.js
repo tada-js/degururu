@@ -46,7 +46,7 @@ export function makeBoard({
 
   // Fixed map layouts: polylines + boxes + optional propellers (no procedural pegs).
   const roulette = layout === "roulette" ? makeRouletteLayout({ worldW, worldH, slotH }) : null;
-  const zigzag = layout === "zigzag" ? makeZigzagLayout({ worldW, worldH, slotH }) : null;
+  const zigzag = layout === "zigzag" ? makeZigzagLayout({ worldW, worldH, slotH, ballR }) : null;
   const fixed = roulette || zigzag;
   const wallSegments = fixed ? buildWallSegments(fixed.entities) : [];
   const wallBins = wallSegments.length ? buildSegmentBins(wallSegments, 260) : null;
@@ -122,6 +122,9 @@ export function makeGameState({ seed = 1234, board = makeBoard(), ballsCatalog =
     board,
     ballsCatalog,
     counts,
+    stats: {
+      propellerContacts: 0
+    },
     chaos: {
       enabled: true,
       fixed: true,
@@ -203,6 +206,7 @@ export function startGame(state) {
   state.finished = [];
   state.winner = null;
   state.released = false;
+  state.stats.propellerContacts = 0;
   state.chaos.rng = makeRng((state.seed ^ 0xa8f1d2c3) >>> 0);
   if (state.chaos.enabled) generateChaosObjects(state);
 
@@ -222,6 +226,7 @@ export function resetGame(state) {
   state.totalToDrop = 0;
   state.finished = [];
   state.winner = null;
+  state.stats.propellerContacts = 0;
   state.chaos.bumpers = [];
   state.chaos.spinners = [];
   state.chaos.portals = [];
@@ -938,31 +943,48 @@ function smoothstep(x) {
   return t * t * (3 - 2 * t);
 }
 
-function makeZigzagLayout({ worldW, worldH, slotH }) {
+function makeZigzagLayout({ worldW, worldH, slotH, ballR = 18 }) {
   const padX = 32;
   const topY = 40;
   const spawnY = topY + 70;
 
   const yEnd = worldH - slotH - 40;
 
-  const narrowHalf = Math.max(120, worldW * 0.20);
-  const wideHalf = Math.max(narrowHalf * 1.8, worldW * 0.40);
+  // Keep the corridor narrow enough to induce wall interaction (avoid long straight falls),
+  // but wide enough to let several marbles pass without constant deadlocks.
+  const maxHalf = Math.max(80, worldW / 2 - padX - 6);
+  const narrowHalfA = clamp(Math.max(ballR * 6.2, 120), 80, Math.min(maxHalf, worldW * 0.22));
+  // Slightly widen the post-mix corridor to reduce pile-up deadlocks.
+  const narrowHalfB = clamp(narrowHalfA * 1.18, narrowHalfA, Math.min(maxHalf, worldW * 0.28));
+  const wideHalf = clamp(Math.max(320, narrowHalfA * 2.9), narrowHalfA * 2.2, Math.min(maxHalf, worldW * 0.46));
 
-  // Zigzag by shifting the corridor center in a piecewise-linear way.
+  const travelH = yEnd - topY;
+  const ky = (t) => topY + travelH * t;
+  const k = (t, cxFrac, hw) => ({ y: ky(t), cx: worldW * cxFrac, hw });
+
+  // Zigzag keys: frequent, fixed left-right alternation to avoid long straight drops.
+  // Then a wide mixing chamber with a rotating propeller, then more zigzag to the bottom.
   const keys = [
-    { y: topY, cx: worldW * 0.50, hw: narrowHalf },
-    { y: yEnd * 0.18, cx: worldW * 0.35, hw: narrowHalf },
-    { y: yEnd * 0.34, cx: worldW * 0.65, hw: narrowHalf },
-    { y: yEnd * 0.48, cx: worldW * 0.40, hw: narrowHalf },
+    k(0.00, 0.50, narrowHalfA),
+    k(0.06, 0.30, narrowHalfA),
+    k(0.12, 0.70, narrowHalfA),
+    k(0.18, 0.34, narrowHalfA),
+    k(0.24, 0.66, narrowHalfA),
+    k(0.30, 0.28, narrowHalfA),
+    k(0.36, 0.72, narrowHalfA),
+    k(0.44, 0.32, narrowHalfA),
+    k(0.52, 0.68, narrowHalfA),
 
     // Mixing chamber (wide).
-    { y: yEnd * 0.60, cx: worldW * 0.52, hw: wideHalf },
-    { y: yEnd * 0.72, cx: worldW * 0.52, hw: wideHalf },
+    k(0.58, 0.52, wideHalf),
+    k(0.66, 0.48, wideHalf),
+    k(0.74, 0.52, wideHalf),
 
     // Back to narrow zigzag.
-    { y: yEnd * 0.82, cx: worldW * 0.62, hw: narrowHalf },
-    { y: yEnd * 0.92, cx: worldW * 0.38, hw: narrowHalf },
-    { y: yEnd, cx: worldW * 0.50, hw: narrowHalf }
+    k(0.80, 0.60, narrowHalfB),
+    k(0.86, 0.40, narrowHalfB),
+    k(0.92, 0.62, narrowHalfB),
+    k(1.00, 0.50, narrowHalfB)
   ];
 
   function profileAt(y) {
@@ -995,14 +1017,15 @@ function makeZigzagLayout({ worldW, worldH, slotH }) {
   ];
 
   // Propeller in the mixing chamber.
-  const mixY0 = yEnd * 0.60;
-  const mixY1 = yEnd * 0.72;
+  const mixY0 = ky(0.58);
+  const mixY1 = ky(0.74);
   const mixY = (mixY0 + mixY1) / 2;
   const { cx, hw } = profileAt(mixY);
-  const propLen = hw * 1.55;
+  // Leave some side clearance so marbles can bypass the blades.
+  const propLen = Math.max(240, hw * 1.55);
   const propellers = [
-    { x: cx, y: mixY, len: propLen, omega: 1.55, phase: 0 },
-    { x: cx, y: mixY, len: propLen, omega: 1.55, phase: Math.PI / 2 }
+    // Single rotating bar: mixes but still lets marbles drain without getting trapped behind a "cross".
+    { x: cx, y: mixY, len: propLen, omega: 1.2, phase: 0 }
   ];
 
   return {
@@ -1383,9 +1406,13 @@ function resolvePropeller(state, m, p, restitution) {
   const tx = -ny;
   const ty = nx;
   const vt = (m.vx - vSurfX) * tx + (m.vy - vSurfY) * ty;
-  const mix = 18;
+  const mix = 8;
   m.vx += tx * (mix * Math.sign(vt || 1));
   m.vy += ty * (mix * Math.sign(vt || 1));
+  // Bias slightly downward so marbles don't orbit forever inside the chamber.
+  m.vy += 18;
+
+  state.stats.propellerContacts++;
 }
 
 function findSafePointForCircle(state, x, y, r, margin) {
