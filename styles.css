@@ -110,6 +110,18 @@ html, body {
 .brand__title {
   font-weight: 800;
   letter-spacing: 0.2px;
+  background: conic-gradient(
+    from 180deg,
+    rgba(255, 0, 170, 1),
+    rgba(0, 255, 255, 1),
+    rgba(255, 176, 0, 1),
+    rgba(255, 0, 170, 1)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: hue-rotate(0deg);
+  animation: rgbBorder 8.5s linear infinite;
 }
 .brand__subtitle {
   margin-top: 2px;
@@ -254,7 +266,7 @@ canvas#game {
 }
 .switch__thumb {
   position: absolute;
-  top: 3px;
+  top: 50%;
   left: 3px;
   width: 20px;
   height: 20px;
@@ -262,13 +274,14 @@ canvas#game {
   background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.55));
   box-shadow: 0 10px 20px rgba(0,0,0,0.35);
   transition: 180ms ease;
+  transform: translateY(-50%);
 }
 .switch:has(.switch__input:checked) .switch__track {
   background: linear-gradient(180deg, rgba(69,243,195,0.35), rgba(69,243,195,0.12));
   border-color: rgba(69,243,195,0.45);
 }
 .switch:has(.switch__input:checked) .switch__thumb {
-  transform: translateX(18px);
+  transform: translateX(18px) translateY(-50%);
 }
 .switch:has(.switch__input:disabled) { opacity: 0.55; cursor: not-allowed; }
 #minimap {
@@ -285,6 +298,7 @@ canvas#game {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.35;
+  white-space: pre-line;
 }
 /* Coordinate tooling is hidden by default; enable via secret toggle (see src/main.js). */
 .board__coords { display: none; }

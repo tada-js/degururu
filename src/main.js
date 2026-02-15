@@ -261,9 +261,11 @@ renderBallCards();
 
 function updateControls() {
   const total = getTotalSelectedCount(state);
-  const finished = !!state.winner;
   startBtn.disabled = total <= 0;
-  startBtn.textContent = state.mode === "playing" ? "재시작" : "시작";
+  // While playing (before the last ball arrives), the button acts as a quick restart.
+  // After the game ends, show it as "시작" for the next run.
+  const inRun = state.mode === "playing" && !state.winner;
+  startBtn.textContent = inRun ? "재시작" : "시작";
   if (viewLockEl) {
     const v = renderer.getViewState?.();
     viewLockEl.disabled = !(state.mode === "playing" && state.released && v);
@@ -699,7 +701,7 @@ function drawMinimap() {
     if (state.mode !== "playing") minimapHintEl.textContent = "시작 전에도 미니맵으로 맵을 둘러볼 수 있어요.";
     else
       minimapHintEl.textContent =
-        "토글 OFF: 자유 시점(미니맵으로 이동). 토글 ON: 후미 공 자동 추적.";
+        "토글 OFF: 자유 시점(미니맵으로 이동)\n토글 ON: 후미 공 자동 추적";
   }
 }
 
