@@ -1,4 +1,5 @@
 # CodeRabbit configuration (kept minimal; adjust once the GitHub App is installed).
+language: "ko-KR"
 reviews:
   high_level_summary: true
   poem: false
@@ -7,8 +8,9 @@ reviews:
     enabled: true
     drafts: false
   path_instructions:
-    - path: "marble-roulette/**"
+    - path: "**/*"
       instructions: |
-        Focus on correctness + determinism (window.advanceTime / render_game_to_text),
-        game physics stability, and CI reliability. Prefer small, testable functions.
-
+        답변은 한국어로 작성해줘.
+        correctness + determinism (window.advanceTime / render_game_to_text),
+        game physics stability, and CI reliability에 집중해줘.
+        Prefer small, testable functions.
