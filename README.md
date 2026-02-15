@@ -6,7 +6,8 @@
 
 - 기본 공: 강아지 / 토끼 / 햄스터
 - 공별 이름/이미지 커스터마이즈(업로드, 로컬 저장)
-- 보드 클릭으로 드롭 위치 지정, `DROP` 버튼으로 공 떨어뜨리기
+- 보드 클릭으로 드롭 위치 지정, `DROP` 버튼으로 공 한 번에 동시에 떨어뜨리기
+- 당첨자: 가장 늦게 바닥(슬롯)에 도착한 공
 - `window.render_game_to_text()` / `window.advanceTime(ms)` 제공(자동화 테스트 용이)
 
 ## Local Dev
@@ -31,4 +32,3 @@ npm run lint
 - `main`: 배포/릴리즈 기준
 - 작업은 `codex/<topic>` 또는 `feature/<topic>` 브랜치 생성
 - PR로 `main`에 머지 (CodeRabbit 리뷰 활용)
-
