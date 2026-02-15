@@ -170,45 +170,101 @@ export function makeRenderer(canvas, { board }) {
       // Wind zones as faint bands.
       for (const z of state.chaos.windZones || []) {
         if (z.y1 < view.cameraY || z.y0 > view.cameraY + view.viewHWorld) continue;
-        ctx.fillStyle = "rgba(69, 243, 195, 0.06)";
+        ctx.fillStyle = "rgba(69, 243, 195, 0.07)";
         ctx.fillRect(z.x0, z.y0, z.x1 - z.x0, z.y1 - z.y0);
+
+        // Direction arrows (animated).
+        const midY = (z.y0 + z.y1) / 2;
+        ctx.strokeStyle = "rgba(69, 243, 195, 0.28)";
+        ctx.lineWidth = 2;
+        const arrowStep = 90;
+        const shift = (state.t * 90) % arrowStep;
+        for (let x = z.x0 + 14 + shift; x < z.x1 - 14; x += arrowStep) {
+          const dir = Math.sin(z.phase + state.t * z.freq) >= 0 ? 1 : -1;
+          drawArrow(ctx, x, midY, dir);
+        }
       }
 
       // Bumpers.
       for (const o of state.chaos.bumpers || []) {
         if (o.y < view.cameraY - 120 || o.y > view.cameraY + view.viewHWorld + 120) continue;
-        ctx.strokeStyle = "rgba(255, 176, 0, 0.75)";
-        ctx.lineWidth = 3;
+        const pulse = 0.55 + 0.45 * Math.sin(state.t * 4 + o.x * 0.01);
+        ctx.fillStyle = `rgba(255, 176, 0, ${0.12 + 0.10 * pulse})`;
+        ctx.strokeStyle = `rgba(255, 176, 0, ${0.70 + 0.20 * pulse})`;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Simple "X" marker.
+        ctx.strokeStyle = "rgba(0,0,0,0.28)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(o.x - o.r * 0.55, o.y - o.r * 0.55);
+        ctx.lineTo(o.x + o.r * 0.55, o.y + o.r * 0.55);
+        ctx.moveTo(o.x - o.r * 0.55, o.y + o.r * 0.55);
+        ctx.lineTo(o.x + o.r * 0.55, o.y - o.r * 0.55);
         ctx.stroke();
       }
 
       // Spinners.
       for (const o of state.chaos.spinners || []) {
         if (o.y < view.cameraY - 120 || o.y > view.cameraY + view.viewHWorld + 120) continue;
+        ctx.fillStyle = "rgba(125, 243, 211, 0.08)";
         ctx.strokeStyle = "rgba(125, 243, 211, 0.75)";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.fill();
         ctx.stroke();
+        // Rotating bar + arrow head.
+        const ang = (state.t * 2.2 * o.dir) % (Math.PI * 2);
+        const ax = Math.cos(ang) * o.r * 0.72;
+        const ay = Math.sin(ang) * o.r * 0.72;
         ctx.beginPath();
-        ctx.moveTo(o.x - o.r * 0.7, o.y);
-        ctx.lineTo(o.x + o.r * 0.7, o.y);
+        ctx.moveTo(o.x - ax, o.y - ay);
+        ctx.lineTo(o.x + ax, o.y + ay);
         ctx.stroke();
+        ctx.fillStyle = "rgba(125, 243, 211, 0.85)";
+        ctx.beginPath();
+        ctx.arc(o.x + ax, o.y + ay, 4.2, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       // Portals.
       for (const p of state.chaos.portals || []) {
-        for (const end of [p.a, p.b]) {
+        const ends = [
+          { end: p.a, label: "A" },
+          { end: p.b, label: "B" }
+        ];
+        for (const { end, label } of ends) {
           if (end.y < view.cameraY - 120 || end.y > view.cameraY + view.viewHWorld + 120) continue;
+          const swirl = (state.t * 2.6) % (Math.PI * 2);
+          ctx.lineWidth = 4;
+          ctx.setLineDash([]);
+          // Outer ring.
           ctx.strokeStyle = "rgba(202, 160, 255, 0.85)";
-          ctx.lineWidth = 3;
-          ctx.setLineDash([8, 8]);
           ctx.beginPath();
           ctx.arc(end.x, end.y, end.r, 0, Math.PI * 2);
           ctx.stroke();
+          // Inner swirl (dashed).
+          ctx.strokeStyle = "rgba(202, 160, 255, 0.55)";
+          ctx.setLineDash([10, 8]);
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, end.r * 0.72, swirl, swirl + Math.PI * 1.6);
+          ctx.stroke();
           ctx.setLineDash([]);
+
+          // Label.
+          ctx.fillStyle = "rgba(0,0,0,0.35)";
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.font = "900 14px ui-monospace, Menlo, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, end.x, end.y + 0.5);
         }
       }
     }
@@ -314,4 +370,17 @@ function clamp(v, a, b) {
 }
 function clampInt(v, a, b) {
   return Math.max(a, Math.min(b, v | 0));
+}
+
+function drawArrow(ctx, x, y, dir) {
+  const len = 20;
+  const head = 6;
+  ctx.beginPath();
+  ctx.moveTo(x - (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir, y);
+  ctx.moveTo(x + (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir - head * dir, y - head);
+  ctx.moveTo(x + (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir - head * dir, y + head);
+  ctx.stroke();
 }

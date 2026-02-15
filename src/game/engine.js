@@ -201,9 +201,11 @@ export function step(state, dt) {
   if (state.mode !== "playing") return;
   state.t += dt;
 
-  const g = 1400; // px/s^2 in world units
-  const restitution = 0.55;
-  const air = 0.995;
+  // Heavier feel: lower gravity, lower bounciness, and more damping.
+  const g = 1050; // px/s^2 in world units
+  const restitution = 0.38;
+  const air = 0.988;
+  const maxV = 1700;
 
   const { worldW, worldH, slotH, pegRows, slots, slotW, topPad, pegGapY } = state.board;
   const finishY = worldH - slotH;
@@ -223,6 +225,13 @@ export function step(state, dt) {
     m.vy += g * dt;
     m.vx *= air;
     m.vy *= air;
+    // Cap speed so chaos objects can't make marbles look weightless.
+    const sp2 = m.vx * m.vx + m.vy * m.vy;
+    if (sp2 > maxV * maxV) {
+      const s = maxV / Math.sqrt(sp2);
+      m.vx *= s;
+      m.vy *= s;
+    }
     m.x += m.vx * dt;
     m.y += m.vy * dt;
 
@@ -428,7 +437,7 @@ function generateChaosObjects(state) {
       x,
       y,
       r: b.ballR * 1.35,
-      strength: 700 + rnd() * 700
+      strength: 420 + rnd() * 520
     });
   }
 
@@ -441,7 +450,7 @@ function generateChaosObjects(state) {
       x,
       y,
       r: b.ballR * 1.55,
-      tangential: 520 + rnd() * 520,
+      tangential: 320 + rnd() * 380,
       dir: rnd() < 0.5 ? -1 : 1
     });
   }
@@ -468,7 +477,7 @@ function generateChaosObjects(state) {
       x1: b.worldW - b.sidePad,
       y0,
       y1,
-      ax: 380 + rnd() * 520,
+      ax: 220 + rnd() * 420,
       freq: 0.8 + rnd() * 0.9,
       phase: rnd() * Math.PI * 2
     });
@@ -546,8 +555,8 @@ function applyChaosCollisions(state, m, restitution) {
     m.x = clamp(to.x + Math.cos(ang) * (m.r + 4), m.r + 2, b.worldW - m.r - 2);
     m.y = clamp(to.y + Math.sin(ang) * (m.r + 4), m.r + 2, b.worldH - b.slotH - m.r - 2);
     // Add velocity jitter so it doesn't feel scripted.
-    m.vx = (m.vx * 0.55) + (rnd() - 0.5) * 900;
-    m.vy = Math.max(0, m.vy * 0.35) + rnd() * 240;
+    m.vx = (m.vx * 0.55) + (rnd() - 0.5) * 520;
+    m.vy = Math.max(0, m.vy * 0.35) + rnd() * 160;
     m._portalCdT = state.t;
     break;
   }

@@ -19,7 +19,8 @@ test("dropAll releases all marbles and winner is the last finisher", () => {
   assert.equal(state.pending.length, 0);
   assert.equal(state.marbles.length, 5);
 
-  for (let i = 0; i < 60 * 12; i++) step(state, 1 / 60);
+  // Physics tuning may change the exact time-to-finish; wait up to 60s.
+  for (let i = 0; i < 60 * 60 && state.finished.length < state.totalToDrop; i++) step(state, 1 / 60);
   assert.equal(state.finished.length, 5);
   assert.ok(state.winner);
   assert.equal(state.winner.t, Math.max(...state.finished.map((x) => x.t)));
