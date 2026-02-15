@@ -21,7 +21,7 @@ export default function GameClient() {
     <div id="app">
       <header className="topbar">
         <div className="brand">
-          <div className="brand__title">마블 룰렛</div>
+          <div className="brand__title">데구르르</div>
           <div className="brand__subtitle">공으로 즐기는 핀볼 사다리</div>
         </div>
         <div className="topbar__actions">

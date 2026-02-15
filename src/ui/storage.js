@@ -1,7 +1,7 @@
 import { DEFAULT_BALLS } from "../game/assets.js";
 
-const KEY = "marble-roulette:balls:v1";
-const COUNTS_KEY = "marble-roulette:ball-counts:v1";
+const KEY = "degururu:balls:v1";
+const COUNTS_KEY = "degururu:ball-counts:v1";
 
 export function loadBallsCatalog() {
   try {
