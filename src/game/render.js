@@ -6,16 +6,21 @@ export function makeRenderer(canvas, { board }) {
   const view = {
     scale: 1,
     ox: 0,
-    oy: 0
+    oy: 0,
+    cameraY: 0,
+    viewHWorld: board.worldH,
+    cameraOverrideY: null
   };
 
   function resizeToFit() {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
-    const s = Math.min(cssW / board.worldW, cssH / board.worldH);
+    // For tall boards, fit width and use a scrolling camera for Y.
+    const s = Math.min(cssW / board.worldW, 1.6);
     view.scale = s;
     view.ox = (cssW - board.worldW * s) / 2;
-    view.oy = (cssH - board.worldH * s) / 2;
+    view.oy = 0;
+    view.viewHWorld = cssH / s;
 
     const r = dpr();
     canvas.width = Math.floor(cssW * r);
@@ -24,10 +29,10 @@ export function makeRenderer(canvas, { board }) {
   }
 
   function worldToScreen(x, y) {
-    return { x: view.ox + x * view.scale, y: view.oy + y * view.scale };
+    return { x: view.ox + x * view.scale, y: view.oy + (y - view.cameraY) * view.scale };
   }
   function screenToWorld(x, y) {
-    return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale };
+    return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale + view.cameraY };
   }
 
   const bg = {
@@ -78,9 +83,33 @@ export function makeRenderer(canvas, { board }) {
   function draw(state, ballsCatalog, imagesById) {
     drawBoardBase();
 
+    // Camera:
+    // - default: auto-follow the slowest (smallest y) unfinished marble so the "last finisher" stays in view.
+    // - manual: user clicks minimap -> cameraOverrideY.
+    // Camera never moves upward in auto mode to avoid disorienting jumps.
+    if (state.mode === "playing" && typeof view.cameraOverrideY === "number") {
+      view.cameraY = clamp(view.cameraOverrideY, 0, Math.max(0, board.worldH - view.viewHWorld));
+    } else if (state.mode === "playing" && state.released) {
+      let targetY = 0;
+      let found = false;
+      for (const m of state.marbles) {
+        if (m.done) continue;
+        if (!found || m.y < targetY) {
+          targetY = m.y;
+          found = true;
+        }
+      }
+      if (!found) targetY = board.worldH - board.slotH - view.viewHWorld;
+      const desired = clamp(targetY - view.viewHWorld * 0.35, 0, Math.max(0, board.worldH - view.viewHWorld));
+      view.cameraY = Math.max(view.cameraY, desired);
+    } else {
+      view.cameraY = 0;
+    }
+
     ctx.save();
     ctx.translate(view.ox, view.oy);
     ctx.scale(view.scale, view.scale);
+    ctx.translate(0, -view.cameraY);
 
     // Board frame.
     ctx.lineWidth = 3;
@@ -89,6 +118,96 @@ export function makeRenderer(canvas, { board }) {
     roundRect(ctx, 10, 10, board.worldW - 20, board.worldH - 20, 24);
     ctx.fill();
     ctx.stroke();
+
+    // Roulette-style map polylines (walls / dividers).
+    if (board.roulette?.entities?.length) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 6;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.setLineDash([12, 10]);
+      for (const e of board.roulette.entities) {
+        if (e.type !== "polyline" || !Array.isArray(e.points) || e.points.length < 2) continue;
+        const y0e = e.points[0][1];
+        const y1e = e.points[e.points.length - 1][1];
+        // Basic cull (outer walls span everything anyway).
+        if (Math.max(y0e, y1e) < view.cameraY - 200 || Math.min(y0e, y1e) > view.cameraY + view.viewHWorld + 200) {
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(e.points[0][0], e.points[0][1]);
+        for (let i = 1; i < e.points.length; i++) ctx.lineTo(e.points[i][0], e.points[i][1]);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Variable-width corridor walls.
+    if (board.corridor) {
+      const y0v = clamp(view.cameraY - 60, 0, board.worldH);
+      const y1v = clamp(view.cameraY + view.viewHWorld + 60, 0, board.worldH);
+      const stepY = Math.max(30, board.pegGapY * 0.8);
+
+      // Shade "outside" area to make the corridor obvious.
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.beginPath();
+      // left outside
+      ctx.moveTo(0, y0v);
+      for (let y = y0v; y <= y1v; y += stepY) {
+        const { left } = corridorAt(board, y);
+        ctx.lineTo(left, y);
+      }
+      ctx.lineTo(corridorAt(board, y1v).left, y1v);
+      ctx.lineTo(0, y1v);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      // right outside
+      ctx.moveTo(board.worldW, y0v);
+      for (let y = y0v; y <= y1v; y += stepY) {
+        const { right } = corridorAt(board, y);
+        ctx.lineTo(right, y);
+      }
+      ctx.lineTo(corridorAt(board, y1v).right, y1v);
+      ctx.lineTo(board.worldW, y1v);
+      ctx.closePath();
+      ctx.fill();
+
+      // Wall strokes.
+      ctx.strokeStyle = "rgba(255,255,255,0.26)";
+      ctx.lineWidth = 6;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      let first = true;
+      for (let y = y0v; y <= y1v; y += stepY) {
+        const { left } = corridorAt(board, y);
+        if (first) {
+          ctx.moveTo(left, y);
+          first = false;
+        } else {
+          ctx.lineTo(left, y);
+        }
+      }
+      ctx.lineTo(corridorAt(board, y1v).left, y1v);
+      ctx.stroke();
+
+      ctx.beginPath();
+      first = true;
+      for (let y = y0v; y <= y1v; y += stepY) {
+        const { right } = corridorAt(board, y);
+        if (first) {
+          ctx.moveTo(right, y);
+          first = false;
+        } else {
+          ctx.lineTo(right, y);
+        }
+      }
+      ctx.lineTo(corridorAt(board, y1v).right, y1v);
+      ctx.stroke();
+    }
 
     // Slot zone.
     const y0 = board.worldH - board.slotH;
@@ -99,7 +218,7 @@ export function makeRenderer(canvas, { board }) {
     ctx.stroke();
 
     // Slot dividers & labels.
-    ctx.font = "700 16px ui-monospace, Menlo, monospace";
+    ctx.font = "700 14px ui-monospace, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (let i = 0; i < board.slotCount; i++) {
@@ -118,15 +237,128 @@ export function makeRenderer(canvas, { board }) {
     }
 
     // Pegs.
-    for (const p of board.pegs) {
-      ctx.fillStyle = "rgba(255,255,255,0.70)";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(0,0,0,0.22)";
-      ctx.beginPath();
-      ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
-      ctx.fill();
+    if (board.pegRows && board.pegRows.length) {
+      const yMin = view.cameraY - 60;
+      const yMax = view.cameraY + view.viewHWorld + 60;
+      const r0 = clampInt(Math.floor((yMin - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+      const r1 = clampInt(Math.ceil((yMax - board.topPad) / board.pegGapY), 0, board.pegRows.length - 1);
+      for (let rr = r0; rr <= r1; rr++) {
+        const row = board.pegRows[rr];
+        for (const p of row) {
+          ctx.fillStyle = "rgba(255,255,255,0.70)";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(0,0,0,0.22)";
+          ctx.beginPath();
+          ctx.arc(p.x - 2.5, p.y - 2.5, Math.max(2, p.r * 0.45), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Chaos objects (bumpers/spinners/portals/wind zones).
+    if (state.chaos?.enabled) {
+      // Wind zones as faint bands.
+      for (const z of state.chaos.windZones || []) {
+        if (z.y1 < view.cameraY || z.y0 > view.cameraY + view.viewHWorld) continue;
+        ctx.fillStyle = "rgba(69, 243, 195, 0.07)";
+        ctx.fillRect(z.x0, z.y0, z.x1 - z.x0, z.y1 - z.y0);
+
+        // Direction arrows (animated).
+        const midY = (z.y0 + z.y1) / 2;
+        ctx.strokeStyle = "rgba(69, 243, 195, 0.28)";
+        ctx.lineWidth = 2;
+        const arrowStep = 90;
+        const shift = (state.t * 90) % arrowStep;
+        for (let x = z.x0 + 14 + shift; x < z.x1 - 14; x += arrowStep) {
+          const dir = Math.sin(z.phase + state.t * z.freq) >= 0 ? 1 : -1;
+          drawArrow(ctx, x, midY, dir);
+        }
+      }
+
+      // Bumpers.
+      for (const o of state.chaos.bumpers || []) {
+        if (o.y < view.cameraY - 120 || o.y > view.cameraY + view.viewHWorld + 120) continue;
+        const pulse = 0.55 + 0.45 * Math.sin(state.t * 4 + o.x * 0.01);
+        ctx.fillStyle = `rgba(255, 176, 0, ${0.12 + 0.10 * pulse})`;
+        ctx.strokeStyle = `rgba(255, 176, 0, ${0.70 + 0.20 * pulse})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Simple "X" marker.
+        ctx.strokeStyle = "rgba(0,0,0,0.28)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(o.x - o.r * 0.55, o.y - o.r * 0.55);
+        ctx.lineTo(o.x + o.r * 0.55, o.y + o.r * 0.55);
+        ctx.moveTo(o.x - o.r * 0.55, o.y + o.r * 0.55);
+        ctx.lineTo(o.x + o.r * 0.55, o.y - o.r * 0.55);
+        ctx.stroke();
+      }
+
+      // Spinners.
+      for (const o of state.chaos.spinners || []) {
+        if (o.y < view.cameraY - 120 || o.y > view.cameraY + view.viewHWorld + 120) continue;
+        ctx.fillStyle = "rgba(125, 243, 211, 0.08)";
+        ctx.strokeStyle = "rgba(125, 243, 211, 0.75)";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Rotating bar + arrow head.
+        const ang = (state.t * 2.2 * o.dir) % (Math.PI * 2);
+        const ax = Math.cos(ang) * o.r * 0.72;
+        const ay = Math.sin(ang) * o.r * 0.72;
+        ctx.beginPath();
+        ctx.moveTo(o.x - ax, o.y - ay);
+        ctx.lineTo(o.x + ax, o.y + ay);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(125, 243, 211, 0.85)";
+        ctx.beginPath();
+        ctx.arc(o.x + ax, o.y + ay, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Portals.
+      for (const p of state.chaos.portals || []) {
+        const ends = [
+          { end: p.a, label: "A" },
+          { end: p.b, label: "B" }
+        ];
+        for (const { end, label } of ends) {
+          if (end.y < view.cameraY - 120 || end.y > view.cameraY + view.viewHWorld + 120) continue;
+          const swirl = (state.t * 2.6) % (Math.PI * 2);
+          ctx.lineWidth = 4;
+          ctx.setLineDash([]);
+          // Outer ring.
+          ctx.strokeStyle = "rgba(202, 160, 255, 0.85)";
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, end.r, 0, Math.PI * 2);
+          ctx.stroke();
+          // Inner swirl (dashed).
+          ctx.strokeStyle = "rgba(202, 160, 255, 0.55)";
+          ctx.setLineDash([10, 8]);
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, end.r * 0.72, swirl, swirl + Math.PI * 1.6);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Label.
+          ctx.fillStyle = "rgba(0,0,0,0.35)";
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.font = "900 14px ui-monospace, Menlo, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, end.x, end.y + 0.5);
+        }
+      }
     }
 
     // Drop guide.
@@ -135,7 +367,8 @@ export function makeRenderer(canvas, { board }) {
       ctx.lineWidth = 3;
       ctx.setLineDash([10, 10]);
       ctx.beginPath();
-      ctx.moveTo(state.dropX, 10);
+      // In world coords.
+      ctx.moveTo(state.dropX, view.cameraY + 10);
       ctx.lineTo(state.dropX, y0 - 30);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -197,7 +430,19 @@ export function makeRenderer(canvas, { board }) {
     resizeToFit,
     draw,
     screenToWorld,
-    worldToScreen
+    worldToScreen,
+    getViewState: () => ({
+      scale: view.scale,
+      cameraY: view.cameraY,
+      viewHWorld: view.viewHWorld,
+      cameraOverrideY: view.cameraOverrideY
+    }),
+    setCameraOverrideY: (y) => {
+      view.cameraOverrideY = typeof y === "number" && Number.isFinite(y) ? y : null;
+    },
+    clearCameraOverride: () => {
+      view.cameraOverrideY = null;
+    }
   };
 }
 
@@ -210,4 +455,43 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+function clampInt(v, a, b) {
+  return Math.max(a, Math.min(b, v | 0));
+}
+
+function drawArrow(ctx, x, y, dir) {
+  const len = 20;
+  const head = 6;
+  ctx.beginPath();
+  ctx.moveTo(x - (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir, y);
+  ctx.moveTo(x + (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir - head * dir, y - head);
+  ctx.moveTo(x + (len / 2) * dir, y);
+  ctx.lineTo(x + (len / 2) * dir - head * dir, y + head);
+  ctx.stroke();
+}
+
+function corridorAt(board, y) {
+  const c = board.corridor;
+  if (!c) return { left: 0, right: board.worldW };
+  const cx = c.worldW / 2;
+  const t = clamp((y - c.startY) / (c.endY - c.startY), 0, 1);
+  const u = smoothstep(t);
+  const hw = lerp(c.wideHalf, c.narrowHalf, u);
+  return { left: clamp(cx - hw, 0, board.worldW), right: clamp(cx + hw, 0, board.worldW) };
+}
+
+function smoothstep(x) {
+  const t = clamp(x, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }

@@ -1,6 +1,7 @@
 import {
   makeBoard,
   makeGameState,
+  makeRng,
   resetGame,
   setDropX,
   snapshotForText,
@@ -23,18 +24,23 @@ const settingsBtn = document.getElementById("settings-btn");
 const ballsEl = document.getElementById("balls");
 const resultEl = document.getElementById("result");
 const hintEl = document.getElementById("hint");
+const minimap = document.getElementById("minimap");
+const followBtn = document.getElementById("follow-btn");
+const minimapHintEl = document.getElementById("minimap-hint");
+const legendEl = document.querySelector(".legend");
 
 const settingsDialog = document.getElementById("settings-dialog");
 const settingsList = document.getElementById("settings-list");
 const restoreDefaultsBtn = document.getElementById("restore-defaults");
 
-const board = makeBoard();
+const board = makeBoard({ layout: "roulette", heightMultiplier: 10, elementScale: 0.85 });
 let ballsCatalog = loadBallsCatalog();
 saveBallsCatalog(ballsCatalog);
 
 const state = makeGameState({ seed: 1337, board, ballsCatalog });
 state.counts = loadBallCounts(ballsCatalog);
 const renderer = makeRenderer(canvas, { board });
+const minimapCtx = minimap?.getContext?.("2d");
 
 const imagesById = new Map();
 function refreshImages() {
@@ -140,12 +146,18 @@ function updateControls() {
   const total = getTotalSelectedCount(state);
   dropBtn.disabled = state.mode !== "playing" || state.released || state.pending.length === 0;
   startBtn.disabled = state.mode === "playing";
+  if (followBtn) {
+    const v = renderer.getViewState?.();
+    followBtn.disabled = !(state.mode === "playing" && v && typeof v.cameraOverrideY === "number");
+  }
   hintEl.textContent =
     state.mode === "playing"
       ? state.released
         ? `Dropping... Finished: ${state.finished.length}/${state.totalToDrop}`
         : `Click the board to set drop position. Press DROP to release all (${state.pending.length}).`
       : `Select counts (+/-), then press Start. Total selected: ${total}`;
+
+  if (legendEl) legendEl.hidden = !state.chaos?.enabled;
 }
 
 function setResultText(msg) {
@@ -157,6 +169,10 @@ startBtn.addEventListener("click", () => {
     setResultText("Select at least 1 ball.");
     return;
   }
+  // Make each run unpredictable to the user, but still deterministic within the run.
+  // (The seed is exposed via render_game_to_text for debugging/fairness.)
+  state.seed = ((Date.now() & 0xffffffff) ^ (Math.random() * 0xffffffff)) >>> 0;
+  state.rng = makeRng(state.seed);
   startGame(state);
   state._shownResultId = null;
   setResultText("");
@@ -169,6 +185,7 @@ resetBtn.addEventListener("click", () => {
   state._shownResultId = null;
   setResultText("");
   renderBallCards();
+  renderer.clearCameraOverride?.();
   updateControls();
 });
 
@@ -229,7 +246,12 @@ function onAfterFrame() {
 }
 
 // Skill integration points: deterministic stepping + text state.
-window.render_game_to_text = () => JSON.stringify(snapshotForText(state));
+window.render_game_to_text = () => {
+  const base = snapshotForText(state);
+  const v = renderer.getViewState?.();
+  if (v) base.camera = { cameraY: v.cameraY, viewHWorld: v.viewHWorld, override: v.cameraOverrideY };
+  return JSON.stringify(base);
+};
 window.advanceTime = async (ms) => {
   tickFixed(ms);
 };
@@ -251,3 +273,113 @@ function raf(now) {
   requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);
+
+function drawMinimap() {
+  if (!minimapCtx || !minimap) return;
+  const w = minimap.width;
+  const h = minimap.height;
+  minimapCtx.clearRect(0, 0, w, h);
+
+  const v = renderer.getViewState?.();
+  const camY = v?.cameraY ?? 0;
+  const viewH = v?.viewHWorld ?? board.worldH;
+  const worldH = board.worldH;
+  const worldW = board.worldW;
+
+  // Frame.
+  minimapCtx.fillStyle = "rgba(0,0,0,0.25)";
+  minimapCtx.fillRect(0, 0, w, h);
+  minimapCtx.strokeStyle = "rgba(255,255,255,0.18)";
+  minimapCtx.lineWidth = 1;
+  minimapCtx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+  // Track.
+  const pad = 10;
+  const trackX = pad;
+  const trackW = w - pad * 2;
+  const trackY = pad;
+  const trackH = h - pad * 2;
+  minimapCtx.fillStyle = "rgba(255,255,255,0.05)";
+  minimapCtx.fillRect(trackX, trackY, trackW, trackH);
+
+  // Slot zone marker.
+  const finishY = worldH - board.slotH;
+  const finishNy = finishY / worldH;
+  minimapCtx.fillStyle = "rgba(255,176,0,0.18)";
+  minimapCtx.fillRect(trackX, trackY + trackH * finishNy, trackW, Math.max(2, trackH * (board.slotH / worldH)));
+
+  // Viewport.
+  const y0 = clamp(camY / worldH, 0, 1);
+  const y1 = clamp((camY + viewH) / worldH, 0, 1);
+  minimapCtx.strokeStyle = "rgba(69,243,195,0.9)";
+  minimapCtx.lineWidth = 2;
+  minimapCtx.strokeRect(trackX + 1, trackY + trackH * y0, trackW - 2, Math.max(8, trackH * (y1 - y0)));
+
+  // Chaos markers (bumpers/portals) as tiny dots.
+  if (state.chaos?.enabled) {
+    for (const o of state.chaos.bumpers || []) {
+      const nx = o.x / worldW;
+      const ny = o.y / worldH;
+      minimapCtx.fillStyle = "rgba(255,176,0,0.75)";
+      minimapCtx.fillRect(trackX + trackW * nx - 1, trackY + trackH * ny - 1, 2, 2);
+    }
+    for (const p of state.chaos.portals || []) {
+      for (const end of [p.a, p.b]) {
+        const nx = end.x / worldW;
+        const ny = end.y / worldH;
+        minimapCtx.fillStyle = "rgba(202,160,255,0.85)";
+        minimapCtx.fillRect(trackX + trackW * nx - 1, trackY + trackH * ny - 1, 2, 2);
+      }
+    }
+  }
+
+  // Marbles.
+  const all = [...(state.pending || []), ...(state.marbles || [])];
+  for (const m of all) {
+    const nx = m.x / worldW;
+    const ny = m.y / worldH;
+    const cx = trackX + trackW * nx;
+    const cy = trackY + trackH * ny;
+    minimapCtx.fillStyle = "rgba(255,255,255,0.85)";
+    minimapCtx.beginPath();
+    minimapCtx.arc(cx, cy, 2.2, 0, Math.PI * 2);
+    minimapCtx.fill();
+  }
+
+  // Hint text (runtime state).
+  if (minimapHintEl) {
+    if (state.mode !== "playing") minimapHintEl.textContent = "Start the game to enable navigation.";
+    else if (!state.released) minimapHintEl.textContent = "Click map to preview. DROP starts the run.";
+    else minimapHintEl.textContent = "Click map to jump. Follow resumes auto-tracking.";
+  }
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+if (minimap) {
+  const onPick = (e) => {
+    if (state.mode !== "playing") return;
+    const rect = minimap.getBoundingClientRect();
+    const y = (e.clientY - rect.top) / rect.height;
+    const v = renderer.getViewState?.();
+    const viewH = v?.viewHWorld ?? board.worldH;
+    const desired = y * board.worldH - viewH * 0.5;
+    renderer.setCameraOverrideY?.(desired);
+    updateControls();
+  };
+  minimap.addEventListener("pointerdown", onPick);
+  minimap.addEventListener("pointermove", (e) => {
+    if (e.buttons !== 1) return;
+    onPick(e);
+  });
+}
+
+followBtn?.addEventListener("click", () => {
+  renderer.clearCameraOverride?.();
+  updateControls();
+});
+
+// Draw minimap at a fixed cadence, independent of requestAnimationFrame variability.
+setInterval(drawMinimap, 100);
