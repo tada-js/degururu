@@ -1,4 +1,5 @@
 node_modules/
 output/
+.next/
+.vercel/
 .DS_Store
-
