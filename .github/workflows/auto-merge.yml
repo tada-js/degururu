@@ -23,7 +23,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set +e
-          OUTPUT="$(gh pr merge "${PR_NUMBER}" --auto --squash 2>&1)"
+          PR_ID="$(gh pr view "${PR_NUMBER}" --json id -q '.id' 2>/dev/null)"
+          OUTPUT="$(gh api graphql \
+            -f query='mutation($pullRequestId: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: SQUASH }) { clientMutationId } }' \
+            -f pullRequestId="${PR_ID}" 2>&1)"
           STATUS=$?
           set -e
 
@@ -32,7 +35,7 @@ jobs:
             exit 0
           fi
 
-          if echo "${OUTPUT}" | grep -Eqi "auto-merge is already enabled|pull request is already merged|pull request is closed"; then
+          if echo "${OUTPUT}" | grep -Eqi "AUTO_MERGE_ENABLED|Pull request is already merged|Pull request is closed|already enabled"; then
             exit 0
           fi
 
