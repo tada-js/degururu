@@ -1,15 +1,19 @@
-// @ts-nocheck
 /**
  * Mount debug/testing hooks on window for automation.
  *
  * @param {{
- *   state: unknown;
- *   renderer: { getViewState?: () => { cameraY: number; viewHWorld: number; cameraOverrideY?: number } | undefined };
- *   snapshotForText: (state: unknown) => Record<string, unknown>;
+ *   state: State;
+ *   renderer: { getViewState?: () => { cameraY: number; viewHWorld: number; cameraOverrideY?: number | null } | undefined };
+ *   snapshotForText: (state: State) => Record<string, unknown>;
  *   tickFixed: (ms: number) => void;
- }} opts
+ * }} opts
  */
-export function mountDebugHooks(opts) {
+export function mountDebugHooks<State>(opts: {
+  state: State;
+  renderer: { getViewState?: () => { cameraY: number; viewHWorld: number; cameraOverrideY?: number | null } | undefined };
+  snapshotForText: (state: State) => Record<string, unknown>;
+  tickFixed: (ms: number) => void;
+}): void {
   const { state, renderer, snapshotForText, tickFixed } = opts;
 
   window.render_game_to_text = () => {
@@ -22,4 +26,11 @@ export function mountDebugHooks(opts) {
   window.advanceTime = async (ms) => {
     tickFixed(ms);
   };
+}
+
+declare global {
+  interface Window {
+    render_game_to_text?: () => string;
+    advanceTime?: (ms: number) => Promise<void>;
+  }
 }

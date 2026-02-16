@@ -1,11 +1,46 @@
-// @ts-nocheck
-export function makeRenderer(canvas, { board }) {
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("2D context not available");
+import type { BallCatalogItem, Board, FixedEntity, GameState, SpawnBounds } from "./engine.ts";
 
-  const dpr = () => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+export type RendererViewState = {
+  scale: number;
+  cameraY: number;
+  viewHWorld: number;
+  cameraOverrideY: number | null;
+};
+
+export type Renderer = {
+  ctx: CanvasRenderingContext2D;
+  resizeToFit: () => void;
+  draw: (state: GameState, ballsCatalog: BallCatalogItem[], imagesById: Map<string, HTMLImageElement>) => void;
+  screenToWorld: (x: number, y: number) => { x: number; y: number };
+  worldToScreen: (x: number, y: number) => { x: number; y: number };
+  getViewState: () => RendererViewState;
+  setCameraOverrideY: (y: number | null | undefined) => void;
+  clearCameraOverride: () => void;
+};
+
+type InternalViewState = RendererViewState & {
+  ox: number;
+  oy: number;
+};
+
+type BgCache = {
+  base: HTMLCanvasElement | null;
+  baseCtx: CanvasRenderingContext2D | null;
+  w: number;
+  h: number;
+  stripePattern: CanvasPattern | null;
+  gridPattern: CanvasPattern | null;
+  patternSeed: number;
+};
+
+export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Board }): Renderer {
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!(context instanceof CanvasRenderingContext2D)) throw new Error("2D context not available");
+  const ctx: CanvasRenderingContext2D = context;
+
+  const dpr = (): number => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const bootMs = performance.now();
-  const hashStr = (s) => {
+  const hashStr = (s: string): number => {
     // Small deterministic hash for stable per-entity color offsets.
     let h = 2166136261 >>> 0;
     const str = String(s || "");
@@ -15,7 +50,7 @@ export function makeRenderer(canvas, { board }) {
     }
     return h >>> 0;
   };
-  const view = {
+  const view: InternalViewState = {
     scale: 1,
     ox: 0,
     oy: 0,
@@ -24,7 +59,7 @@ export function makeRenderer(canvas, { board }) {
     cameraOverrideY: null
   };
 
-  const bgCache = {
+  const bgCache: BgCache = {
     base: null,
     baseCtx: null,
     w: 0,
@@ -34,7 +69,7 @@ export function makeRenderer(canvas, { board }) {
     patternSeed: 0,
   };
 
-  function resizeToFit() {
+  function resizeToFit(): void {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
     // For tall boards, fit width and use a scrolling camera for Y.
@@ -50,26 +85,21 @@ export function makeRenderer(canvas, { board }) {
     ctx.setTransform(r, 0, 0, r, 0, 0);
   }
 
-  function worldToScreen(x, y) {
+  function worldToScreen(x: number, y: number): { x: number; y: number } {
     return { x: view.ox + x * view.scale, y: view.oy + (y - view.cameraY) * view.scale };
   }
-  function screenToWorld(x, y) {
+  function screenToWorld(x: number, y: number): { x: number; y: number } {
     return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale + view.cameraY };
   }
 
-  const bg = {
-    gridA: "rgba(255,255,255,0.05)",
-    gridB: "rgba(255,255,255,0.02)"
-  };
-
-  function makeCanvas(w, h) {
+  function makeCanvas(w: number, h: number): HTMLCanvasElement {
     const c = document.createElement("canvas");
     c.width = Math.max(1, w | 0);
     c.height = Math.max(1, h | 0);
     return c;
   }
 
-  function ensureBgCache(cssW, cssH) {
+  function ensureBgCache(cssW: number, cssH: number): void {
     if (!bgCache.base || bgCache.w !== cssW || bgCache.h !== cssH) {
       bgCache.w = cssW | 0;
       bgCache.h = cssH | 0;
@@ -173,7 +203,7 @@ export function makeRenderer(canvas, { board }) {
     }
   }
 
-  function drawBoardBase(tSec = 0) {
+  function drawBoardBase(tSec = 0): void {
     // Use real time so the background animates even when the simulation is paused (menu, dialogs, etc).
     const rt = (performance.now() - bootMs) / 1000;
     const tt = (Number.isFinite(tSec) ? tSec : 0) + rt * 0.85;
@@ -226,11 +256,11 @@ export function makeRenderer(canvas, { board }) {
     ctx.restore();
   }
 
-  function draw(state, ballsCatalog, imagesById) {
-    drawBoardBase(state?.t || 0);
+  function draw(state: GameState, ballsCatalog: BallCatalogItem[], imagesById: Map<string, HTMLImageElement>): void {
+    drawBoardBase(state.t || 0);
 
     // Shared FX time for hue cycling (keeps animating even when game is paused).
-    const fxT = ((performance.now() - bootMs) / 1000) + (state?.t || 0);
+    const fxT = ((performance.now() - bootMs) / 1000) + (state.t || 0);
 
     // Camera:
     // - manual: minimap / view lock can set cameraOverrideY (works even before starting).
@@ -281,7 +311,7 @@ export function makeRenderer(canvas, { board }) {
     ctx.fillStyle = "rgba(255,255,255,0.018)";
     ctx.fill();
 
-    const fixedEntities = board.roulette?.entities?.length
+    const fixedEntities: FixedEntity[] | null = board.roulette?.entities?.length
       ? board.roulette.entities
       : board.zigzag?.entities?.length
         ? board.zigzag.entities
@@ -521,7 +551,7 @@ export function makeRenderer(canvas, { board }) {
     // Drop guide removed (no click-to-set drop position).
 
     // Marbles (pending + active).
-    for (const m of [...(state.pending || []), ...state.marbles]) {
+    for (const m of [...state.pending, ...state.marbles]) {
       // Hide finished marbles to avoid clutter when 100+ arrive.
       if (m.done) continue;
       const meta = ballsCatalog.find((b) => b.id === m.ballId);
@@ -609,22 +639,22 @@ export function makeRenderer(canvas, { board }) {
     draw,
     screenToWorld,
     worldToScreen,
-    getViewState: () => ({
+    getViewState: (): RendererViewState => ({
       scale: view.scale,
       cameraY: view.cameraY,
       viewHWorld: view.viewHWorld,
       cameraOverrideY: view.cameraOverrideY
     }),
-    setCameraOverrideY: (y) => {
+    setCameraOverrideY: (y: number | null | undefined): void => {
       view.cameraOverrideY = typeof y === "number" && Number.isFinite(y) ? y : null;
     },
-    clearCameraOverride: () => {
+    clearCameraOverride: (): void => {
       view.cameraOverrideY = null;
     }
   };
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   ctx.beginPath();
   ctx.moveTo(x + rr, y);
@@ -635,14 +665,14 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function clamp(v, a, b) {
+function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
 }
-function clampInt(v, a, b) {
+function clampInt(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v | 0));
 }
 
-function drawArrow(ctx, x, y, dir) {
+function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number): void {
   const len = 20;
   const head = 6;
   ctx.beginPath();
@@ -655,7 +685,7 @@ function drawArrow(ctx, x, y, dir) {
   ctx.stroke();
 }
 
-function corridorAt(board, y) {
+function corridorAt(board: Board, y: number): SpawnBounds {
   const c = board.corridor;
   if (!c) return { left: 0, right: board.worldW };
   const cx = c.worldW / 2;
@@ -665,11 +695,11 @@ function corridorAt(board, y) {
   return { left: clamp(cx - hw, 0, board.worldW), right: clamp(cx + hw, 0, board.worldW) };
 }
 
-function smoothstep(x) {
+function smoothstep(x: number): number {
   const t = clamp(x, 0, 1);
   return t * t * (3 - 2 * t);
 }
 
-function lerp(a, b, t) {
+function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
