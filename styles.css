@@ -58,41 +58,26 @@ html, body {
 }
 
 .topbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 14px 16px;
   border-bottom: 1px solid var(--stroke);
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
   backdrop-filter: blur(8px);
   gap: 12px;
 }
-.topbar__left {
-  justify-self: start;
-  min-width: 0;
-}
-.topbar__center {
+.topbar__actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  justify-self: center;
-}
-.topbar__right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-  justify-self: end;
 }
 .topbar__divider {
   width: 1px;
   height: 26px;
   background: rgba(255,255,255,0.16);
   margin: 0 4px 0 10px;
-}
-.topbar__pause {
-  min-width: 86px;
 }
 .topbar__start {
   padding-left: 14px;
@@ -223,7 +208,7 @@ canvas#game {
   background: rgba(255,255,255,0.03);
   box-shadow: none;
 }
-.topbar .btn--ghost:hover:not(:disabled) {
+.topbar__actions .btn--ghost:hover:not(:disabled) {
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
   color: #fff;
@@ -234,19 +219,6 @@ canvas#game {
 }
 
 .hud > * + * { margin-top: 10px; }
-.hud__actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.hud__actions .btn {
-  width: 100%;
-}
-.hud__actions .btn--ghost:hover:not(:disabled) {
-  border-color: rgba(255,255,255,0.34);
-  background: rgba(255,255,255,0.14);
-  color: #fff;
-}
 
 .mini {
   border: 1px solid var(--stroke);
@@ -848,20 +820,13 @@ dialog.dialog--winner::backdrop {
 @media (max-width: 720px) {
   .topbar {
     padding: 12px 12px;
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
   }
   .brand__subtitle { display: none; }
-  .topbar__center {
-    justify-self: stretch;
-    justify-content: center;
-    gap: 8px;
-  }
-  .topbar__right {
+  .topbar__actions {
     width: 100%;
-    justify-self: stretch;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 8px;
   }
   .topbar__divider { display: none; }
