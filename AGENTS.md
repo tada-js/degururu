@@ -46,3 +46,8 @@ gh pr view <number> --json title,body
 ```
 
 - Confirm body contains real line breaks and no `\\n` literals.
+
+## Gitleaks Allowlist Policy
+
+- In `.gitleaks.toml`, every entry under `[allowlist].regexes` must have an immediate previous-line comment starting with `# reason:`.
+- Keep allowlist exceptions minimal and scoped to documented placeholders/templates only.

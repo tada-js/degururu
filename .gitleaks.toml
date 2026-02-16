@@ -1,0 +1,15 @@
+title = "Degururu gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow template placeholders that are intentionally non-secret values"
+regexes = [
+  # reason: .env.example placeholder only; not a real credential.
+  '''RESEND_API_KEY=re_x{8,}''',
+  # reason: documentation sample recipient address in .env.example.
+  '''INQUIRY_TO_EMAIL=your-email@example\.com''',
+  # reason: Resend official sample sender used as non-secret default.
+  '''INQUIRY_FROM_EMAIL=onboarding@resend\.dev''',
+]

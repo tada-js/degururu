@@ -13,11 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: package-lock.json
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VERSION="8.24.2"
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" gitleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gitleaks" version
+      - name: Validate gitleaks allowlist policy
+        run: node scripts/validate-gitleaks-allowlist.mjs
+      - name: Gitleaks (git history + working tree)
+        run: gitleaks git --redact --verbose --log-opts="--all" -c .gitleaks.toml
       - name: Install
         run: npm ci
       - name: Lint
