@@ -55,6 +55,7 @@ const canvasCoordReadoutEl = mustGetEl<HTMLDivElement>("canvas-coord-readout");
 const canvasCoordCopyBtn = mustGetEl<HTMLButtonElement>("canvas-coord-copy");
 const minimapTitleEl = mustGetEl<HTMLDivElement>("minimap-title");
 
+/** syncVisualViewportHeight helper. */
 function syncVisualViewportHeight() {
   // Mobile browsers: 100vh often includes dynamic browser chrome; use the visual viewport height instead.
   const vv = window.visualViewport;
@@ -119,7 +120,6 @@ state.counts = (loadBallCounts(ballsCatalog) as Record<string, number>) ?? {};
 const renderer = makeRenderer(canvas, { board });
 const minimapCtx: CanvasRenderingContext2D | null = minimap.getContext("2d");
 
-let lastMinimapFrac: FracCoord | null = null;
 let lastCanvasFrac: FracCoord | null = null;
 let pinnedCanvasFrac: FracCoord | null = null;
 let coordMode = false;
@@ -130,12 +130,14 @@ let coordMode = false;
 let tailFocusOn = false;
 
 let lastWinner: WinnerPayload | null = null;
+/** setWinnerCache helper. */
 function setWinnerCache(payload: WinnerPayload | null): void {
   lastWinner = payload || null;
   winnerBtn.disabled = !lastWinner;
 }
 
 const imagesById = new Map<string, HTMLImageElement>();
+/** refreshImages helper. */
 function refreshImages(): void {
   imagesById.clear();
   for (const b of ballsCatalog) {
@@ -146,6 +148,7 @@ function refreshImages(): void {
 }
 refreshImages();
 
+/** setBalls helper. */
 function setBalls(next: BallCatalogEntry[]): void {
   ballsCatalog = next;
   state.ballsCatalog = next;
@@ -166,6 +169,7 @@ const settings = mountSettingsDialog(
   setBalls
 ) as { open: () => void; render: () => void };
 
+/** makeNewBall helper. */
 function makeNewBall(): BallCatalogEntry {
   const h = Math.floor(Math.random() * 360);
   const bg0 = `hsl(${h}, 95%, 58%)`;
@@ -207,6 +211,7 @@ addBallBtn.addEventListener("click", () => {
   settings.render();
 });
 
+/** renderBallCards helper. */
 function renderBallCards() {
   // Avoid innerHTML to reduce the chance of accidental XSS patterns.
   ballsEl.replaceChildren();
@@ -293,6 +298,7 @@ function renderBallCards() {
 }
 renderBallCards();
 
+/** updateControls helper. */
 function updateControls() {
   const total = getTotalSelectedCount(state);
   startBtn.disabled = state.mode === "playing";
@@ -306,10 +312,12 @@ function updateControls() {
       : `수량을 고른 뒤 시작하세요. 총 ${total}개`;
 }
 
+/** setResultText helper. */
 function setResultText(msg: string): void {
   resultEl.textContent = msg || "";
 }
 
+/** updateCanvasCoordReadout helper. */
 function updateCanvasCoordReadout(xFrac: number, yFrac: number): void {
   if (!coordMode) return;
   lastCanvasFrac =
@@ -323,6 +331,7 @@ function updateCanvasCoordReadout(xFrac: number, yFrac: number): void {
   if (canvasCoordCopyBtn) canvasCoordCopyBtn.disabled = !show;
 }
 
+/** clamp01 helper. */
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
@@ -353,6 +362,7 @@ async function copyText(s: string): Promise<boolean> {
   }
 }
 
+/** playFanfare helper. */
 function playFanfare() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -389,10 +399,12 @@ const bgm = {
   nextT: 0,
 };
 
+/** midiToHz helper. */
 function midiToHz(n: number): number {
   return 440 * Math.pow(2, (n - 69) / 12);
 }
 
+/** bgmStop helper. */
 function bgmStop(): void {
   if (bgm.timer) {
     clearInterval(bgm.timer);
@@ -412,6 +424,7 @@ function bgmStop(): void {
   bgm.loopSec = 0;
 }
 
+/** bgmStart helper. */
 function bgmStart(): void {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
@@ -451,6 +464,7 @@ function bgmStart(): void {
     50, 50, 50, 50, 48, 48, 48, 48,
   ];
 
+  /** playTone helper. */
   function playTone(type: OscillatorType, hz: number, start: number, dur: number, vol: number): void {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
@@ -465,6 +479,7 @@ function bgmStart(): void {
     o.stop(start + dur + 0.02);
   }
 
+  /** schedule helper. */
   function schedule(fromT: number, horizonSec: number): void {
     const endT = fromT + horizonSec;
     let t = bgm.nextT;
@@ -491,6 +506,7 @@ function bgmStart(): void {
   }, 320);
 }
 
+/** setBgmOn helper. */
 function setBgmOn(on: boolean): void {
   bgm.on = !!on;
   try { localStorage.setItem("bgmOn", bgm.on ? "1" : "0"); } catch {}
@@ -502,6 +518,7 @@ function setBgmOn(on: boolean): void {
   else bgmStop();
 }
 
+/** getWinnerPayloadFromState helper. */
 function getWinnerPayloadFromState(): WinnerPayload | null {
   if (!state.winner) return null;
   const w = state.winner;
@@ -513,6 +530,7 @@ function getWinnerPayloadFromState(): WinnerPayload | null {
   return { name, img, order: orderIdx + 1, total: state.totalToDrop };
 }
 
+/** showWinnerModal helper. */
 function showWinnerModal() {
   if (!winnerDialog) return;
   const payload = lastWinner || getWinnerPayloadFromState();
@@ -535,6 +553,7 @@ function showWinnerModal() {
   }
 }
 
+/** tryStart helper. */
 function tryStart() {
   if (getTotalSelectedCount(state) <= 0) {
     setResultText("최소 1개 이상 선택하세요.");
@@ -624,6 +643,7 @@ document.addEventListener("keydown", async (e: KeyboardEvent) => {
 
 let fixedAccumulatorSec = 0;
 
+/** tickFixed helper. */
 function tickFixed(ms: number): void {
   const dt = 1 / 60;
   const sec = Math.max(0, ms / 1000);
@@ -635,6 +655,7 @@ function tickFixed(ms: number): void {
   onAfterFrame();
 }
 
+/** onAfterFrame helper. */
 function onAfterFrame() {
   if (state.winner && state._shownWinnerT !== state.winner.t) {
     state._shownWinnerT = state.winner.t;
@@ -662,12 +683,8 @@ window.advanceTime = async (ms: number): Promise<void> => {
   tickFixed(ms);
 };
 
-function resize(): void {
-  // Deprecated: kept for any external callers.
-  scheduleResize();
-}
-
 let _resizeRaf = 0;
+/** scheduleResize helper. */
 function scheduleResize(): void {
   if (_resizeRaf) return;
   _resizeRaf = requestAnimationFrame(() => {
@@ -686,6 +703,7 @@ scheduleResize();
 
 // Animation loop for interactive play. `advanceTime()` overrides are for automation.
 let last = performance.now();
+/** raf helper. */
 function raf(now: number): void {
   const dtMs = Math.min(40, now - last);
   last = now;
@@ -695,6 +713,7 @@ function raf(now: number): void {
 }
 requestAnimationFrame(raf);
 
+/** drawMinimap helper. */
 function drawMinimap(): void {
   if (!minimapCtx) return;
   const w = minimap.width;
@@ -768,17 +787,18 @@ function drawMinimap(): void {
   }
 }
 
+/** clamp helper. */
 function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
 }
 
 {
+  /** onPick helper. */
   const onPick = (e: PointerEvent) => {
     // Free view mode only. If the user interacts with the minimap, switch to free view.
     tailFocusOn = false;
     viewLockEl.checked = false;
     const rect = minimap.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
     const v = renderer.getViewState();
     const viewH = v.viewHWorld;
@@ -842,12 +862,12 @@ document.addEventListener("keydown", (e) => {
   updateCanvasCoordReadout(NaN, NaN);
 });
 
+/** setCoordMode helper. */
 function setCoordMode(on: boolean): void {
   coordMode = !!on;
   document.documentElement.classList.toggle("coord-mode", coordMode);
   pinnedCanvasFrac = null;
   lastCanvasFrac = null;
-  lastMinimapFrac = null;
   // Refresh readouts if visible.
   if (coordMode) {
     updateCanvasCoordReadout(NaN, NaN);

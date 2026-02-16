@@ -25,6 +25,7 @@ import type {
  *
  * Note: this is not cryptographically secure; it is meant for gameplay and tests.
  */
+/** makeRng helper. */
 export function makeRng(seed: number): Rng {
   let x = seed >>> 0;
   return () => {
@@ -40,6 +41,7 @@ export function makeRng(seed: number): Rng {
  * Build a board (layout + entities) based on options.
  * Pure construction: does not mutate or depend on existing game state.
  */
+/** makeBoard helper. */
 export function makeBoard({
   worldW = 900,
   worldH = 1350,
@@ -147,6 +149,7 @@ export function makeBoard({
  *
  * The returned object is mutated in-place by the engine functions.
  */
+/** makeGameState helper. */
 export function makeGameState({
   seed = 1234,
   board = makeBoard(),
@@ -204,6 +207,7 @@ export function getTotalSelectedCount(state: GameState): number {
  * Expand `state.counts` into a drop queue of ball IDs.
  * If `shuffle` is enabled, the queue is shuffled deterministically from the seed.
  */
+/** prepareDropQueue helper. */
 export function prepareDropQueue(state: GameState, { shuffle = true }: { shuffle?: boolean } = {}): string[] {
   const queue: string[] = [];
   for (const b of state.ballsCatalog) {
@@ -225,6 +229,7 @@ export function prepareDropQueue(state: GameState, { shuffle = true }: { shuffle
  * Set the desired drop X coordinate (world units).
  * Clamped to valid spawn bounds for the current layout.
  */
+/** setDropX helper. */
 export function setDropX(state: GameState, x: number): void {
   const pad = state.board.ballR + 2;
   const spawnBoundsAtY =
@@ -249,6 +254,7 @@ export function setDropX(state: GameState, x: number): void {
  * Start a run: initialize runtime arrays and pre-build the pending marbles queue.
  * Does not release marbles; call `dropAll` to release.
  */
+/** startGame helper. */
 export function startGame(state: GameState): void {
   state.mode = "playing";
   state.t = 0;
@@ -285,6 +291,7 @@ export function resetGame(state: GameState): void {
  * Release all pending marbles immediately.
  * Returns the number released (or null if not currently playing).
  */
+/** dropAll helper. */
 export function dropAll(state: GameState): number | null {
   if (state.mode !== "playing") return null;
   if (state.released) return 0;
@@ -305,6 +312,7 @@ export function dropAll(state: GameState): number | null {
  * For deterministic playback/tests, call this with a fixed timestep
  * (see `window.advanceTime` in main.ts).
  */
+/** step helper. */
 export function step(state: GameState, dt: number): void {
   if (state.mode !== "playing") return;
 
@@ -473,7 +481,7 @@ export function step(state: GameState, dt: number): void {
         // Zigzag layout: rotating propellers in mixing chamber.
         if (propellers && propellers.length) {
           for (const p of propellers) {
-            resolvePropeller(state, m, p, restitution);
+            resolvePropeller(state, m, p);
           }
         }
 
@@ -641,13 +649,16 @@ export function snapshotForText(state: GameState): TextSnapshot {
   };
 }
 
+/** clamp helper. */
 function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
 }
+/** clampInt helper. */
 function clampInt(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v | 0));
 }
 
+/** makePendingMarble helper. */
 function makePendingMarble(state: GameState, ballId: string, idx: number): Marble {
   const ball = state.ballsCatalog.find((b) => b.id === ballId);
   if (!ball) throw new Error(`unknown ballId: ${ballId}`);
@@ -668,6 +679,7 @@ function makePendingMarble(state: GameState, ballId: string, idx: number): Marbl
   };
 }
 
+/** layoutPending helper. */
 function layoutPending(state: GameState): void {
   const { worldW, ballR } = state.board;
   const n = state.pending.length;
@@ -722,6 +734,7 @@ function layoutPending(state: GameState): void {
   }
 }
 
+/** settleMarbles helper. */
 function settleMarbles(state: GameState, iterations: number): void {
   const { worldW, wallSegments, wallBins, corridor } = state.board;
   const restitution = 0.25;
@@ -774,10 +787,12 @@ function settleMarbles(state: GameState, iterations: number): void {
   }
 }
 
+/** lerp helper. */
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+/** makeCorridor helper. */
 function makeCorridor({ worldW, worldH, ballR }: { worldW: number; worldH: number; ballR: number }): Corridor {
   const wideHalf = worldW / 2;
   const narrowW = ballR * 7.2; // ~2-3 balls through, depending on scale.
@@ -798,6 +813,7 @@ function makeCorridor({ worldW, worldH, ballR }: { worldW: number; worldH: numbe
   return { worldW, startY, endY, wideHalf, narrowHalf, clearBands: bands };
 }
 
+/** isClearZone helper. */
 function isClearZone(corridor: Corridor, y: number): boolean {
   for (const b of corridor.clearBands || []) {
     if (y >= b.y0 && y <= b.y1) return true;
@@ -805,6 +821,7 @@ function isClearZone(corridor: Corridor, y: number): boolean {
   return false;
 }
 
+/** corridorAt helper. */
 function corridorAt(corridor: Corridor, y: number): { left: number; right: number } {
   const cx = corridor.worldW / 2;
   const t = clamp((y - corridor.startY) / (corridor.endY - corridor.startY), 0, 1);
@@ -816,11 +833,13 @@ function corridorAt(corridor: Corridor, y: number): { left: number; right: numbe
   return { left, right };
 }
 
+/** smoothstep helper. */
 function smoothstep(x: number): number {
   const t = clamp(x, 0, 1);
   return t * t * (3 - 2 * t);
 }
 
+/** makeZigzagLayout helper. */
 function makeZigzagLayout({
   worldW,
   worldH,
@@ -889,6 +908,7 @@ function makeZigzagLayout({
     k(1.00, 0.50, clamp(Math.max(ballR * 3.6, 78), 60, narrowHalfB * 0.82))
   ];
 
+  /** profileAt helper. */
   function profileAt(y: number): { y: number; cx: number; hw: number } {
     if (y <= keys[0].y) return keys[0];
     for (let i = 0; i < keys.length - 1; i++) {
@@ -1142,6 +1162,7 @@ function makeZigzagLayout({
   };
 }
 
+/** makeRouletteLayout helper. */
 function makeRouletteLayout({ worldW, worldH, slotH }: { worldW: number; worldH: number; slotH: number }): RouletteLayout {
   // Adapted from lazygyu/roulette "Wheel of fortune" stage polylines.
   // Coordinate system there is ~x:[1..24], y:[-300..111]. We shift y by +300 and scale to our world.
@@ -1309,6 +1330,7 @@ function makeRouletteLayout({ worldW, worldH, slotH }: { worldW: number; worldH:
   };
 }
 
+/** normalizeRotation helper. */
 function normalizeRotation(rot: number): number {
   const r = Number(rot) || 0;
   // Heuristic: values with magnitude > 2*pi are degrees.
@@ -1316,6 +1338,7 @@ function normalizeRotation(rot: number): number {
   return r;
 }
 
+/** interpolateXAtY helper. */
 function interpolateXAtY(points: Array<readonly [number, number]>, y: number): number {
   if (!points.length) return 0;
   if (y <= points[0][1]) return points[0][0];
@@ -1331,6 +1354,7 @@ function interpolateXAtY(points: Array<readonly [number, number]>, y: number): n
   return points[points.length - 1][0];
 }
 
+/** buildWallSegments helper. */
 function buildWallSegments(entities: FixedEntity[]): WallSegment[] {
   const segs: WallSegment[] = [];
   for (const ent of entities || []) {
@@ -1350,6 +1374,7 @@ function buildWallSegments(entities: FixedEntity[]): WallSegment[] {
   return segs;
 }
 
+/** boxToSegments helper. */
 function boxToSegments(b: Extract<FixedEntity, { type: "box" }>): WallSegment[] {
   const cx = b.x;
   const cy = b.y;
@@ -1372,6 +1397,7 @@ function boxToSegments(b: Extract<FixedEntity, { type: "box" }>): WallSegment[] 
   return segs;
 }
 
+/** makeSeg helper. */
 function makeSeg(x0: number, y0: number, x1: number, y1: number): WallSegment {
   const dx = x1 - x0;
   const dy = y1 - y0;
@@ -1389,6 +1415,7 @@ function makeSeg(x0: number, y0: number, x1: number, y1: number): WallSegment {
   };
 }
 
+/** buildSegmentBins helper. */
 function buildSegmentBins(segments: WallSegment[], binH: number): SegmentBins {
   let yMax = 0;
   for (const s of segments) yMax = Math.max(yMax, s.yMax);
@@ -1403,6 +1430,7 @@ function buildSegmentBins(segments: WallSegment[], binH: number): SegmentBins {
   return { binH, bins };
 }
 
+/** resolveWallSegments helper. */
 function resolveWallSegments(
   board: Board,
   m: Marble,
@@ -1434,6 +1462,7 @@ function resolveWallSegments(
   m.x = clamp(m.x, m.r, board.worldW - m.r);
 }
 
+/** resolveCircleSegment helper. */
 function resolveCircleSegment(m: Marble, s: WallSegment, restitution: number): void {
   const px = m.x;
   const py = m.y;
@@ -1473,7 +1502,8 @@ function resolveCircleSegment(m: Marble, s: WallSegment, restitution: number): v
   }
 }
 
-function resolvePropeller(state: GameState, m: Marble, p: Propeller, restitution: number): void {
+/** resolvePropeller helper. */
+function resolvePropeller(state: GameState, m: Marble, p: Propeller): void {
   const t = state.t;
   const ang = (p.phase ?? 0) + (p.omega ?? 0) * t;
   const c = Math.cos(ang);
@@ -1542,6 +1572,7 @@ function resolvePropeller(state: GameState, m: Marble, p: Propeller, restitution
   state.stats.propellerContacts++;
 }
 
+/** resolveRotor helper. */
 function resolveRotor(state: GameState, m: Marble, r: Rotor, restitution: number): void {
   const dx = m.x - r.x;
   const dy = m.y - r.y;
@@ -1606,6 +1637,7 @@ function resolveRotor(state: GameState, m: Marble, r: Rotor, restitution: number
   if (Number.isFinite(maxUp) && maxUp >= 0) m.vy = Math.max(m.vy, -maxUp);
 }
 
+/** hash01 helper. */
 function hash01(str: string): number {
   // FNV-1a 32-bit -> [0,1)
   let h = 2166136261;

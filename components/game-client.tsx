@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Image from "next/image";
 
 export default function GameClient() {
   const bootedRef = useRef(false);
@@ -139,7 +140,14 @@ export default function GameClient() {
 
             <div className="winner__grid">
               <div className="winner__thumb">
-                <img id="winner-img" alt="" />
+                <Image
+                  id="winner-img"
+                  alt=""
+                  src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                  width={144}
+                  height={144}
+                  unoptimized
+                />
               </div>
               <div className="winner__meta">
                 <div className="winner__metaRow">

@@ -18,6 +18,7 @@ export interface Renderer {
   clearCameraOverride: () => void;
 }
 
+/** makeRenderer helper. */
 export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Board }): Renderer {
   const ctx0 = canvas.getContext("2d", { alpha: false });
   if (!ctx0) throw new Error("2D context not available");
@@ -54,6 +55,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     patternSeed: 0,
   };
 
+  /** resizeToFit helper. */
   function resizeToFit(): void {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
@@ -70,18 +72,16 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     ctx.setTransform(r, 0, 0, r, 0, 0);
   }
 
+  /** worldToScreen helper. */
   function worldToScreen(x: number, y: number): { x: number; y: number } {
     return { x: view.ox + x * view.scale, y: view.oy + (y - view.cameraY) * view.scale };
   }
+  /** screenToWorld helper. */
   function screenToWorld(x: number, y: number): { x: number; y: number } {
     return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale + view.cameraY };
   }
 
-  const bg = {
-    gridA: "rgba(255,255,255,0.05)",
-    gridB: "rgba(255,255,255,0.02)"
-  };
-
+  /** makeCanvas helper. */
   function makeCanvas(w: number, h: number): HTMLCanvasElement {
     const c = document.createElement("canvas");
     c.width = Math.max(1, w | 0);
@@ -89,6 +89,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     return c;
   }
 
+  /** ensureBgCache helper. */
   function ensureBgCache(cssW: number, cssH: number): void {
     if (!bgCache.base || bgCache.w !== cssW || bgCache.h !== cssH) {
       bgCache.w = cssW | 0;
@@ -193,6 +194,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     }
   }
 
+  /** drawBoardBase helper. */
   function drawBoardBase(tSec = 0): void {
     // Use real time so the background animates even when the simulation is paused (menu, dialogs, etc).
     const rt = (performance.now() - bootMs) / 1000;
@@ -246,6 +248,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     ctx.restore();
   }
 
+  /** draw helper. */
   function draw(state: GameState, ballsCatalog: BallCatalogEntry[], imagesById: Map<string, HTMLImageElement>): void {
     drawBoardBase(state?.t || 0);
 
@@ -635,6 +638,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   };
 }
 
+/** roundRect helper. */
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   ctx.beginPath();
@@ -646,26 +650,16 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
+/** clamp helper. */
 function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
 }
+/** clampInt helper. */
 function clampInt(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v | 0));
 }
 
-function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number): void {
-  const len = 20;
-  const head = 6;
-  ctx.beginPath();
-  ctx.moveTo(x - (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir, y);
-  ctx.moveTo(x + (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir - head * dir, y - head);
-  ctx.moveTo(x + (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir - head * dir, y + head);
-  ctx.stroke();
-}
-
+/** corridorAt helper. */
 function corridorAt(board: Board, y: number): { left: number; right: number } {
   const c = board.corridor;
   if (!c) return { left: 0, right: board.worldW };
@@ -676,11 +670,13 @@ function corridorAt(board: Board, y: number): { left: number; right: number } {
   return { left: clamp(cx - hw, 0, board.worldW), right: clamp(cx + hw, 0, board.worldW) };
 }
 
+/** smoothstep helper. */
 function smoothstep(x: number): number {
   const t = clamp(x, 0, 1);
   return t * t * (3 - 2 * t);
 }
 
+/** lerp helper. */
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }

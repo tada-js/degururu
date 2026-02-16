@@ -31,6 +31,7 @@ const canvasCoordReadoutEl = document.getElementById("canvas-coord-readout");
 const canvasCoordCopyBtn = document.getElementById("canvas-coord-copy");
 const minimapTitleEl = document.getElementById("minimap-title");
 
+/** syncVisualViewportHeight helper. */
 function syncVisualViewportHeight() {
   // Mobile browsers: 100vh often includes dynamic browser chrome; use the visual viewport height instead.
   const vv = window.visualViewport;
@@ -93,7 +94,6 @@ state.counts = loadBallCounts(ballsCatalog);
 const renderer = makeRenderer(canvas, { board });
 const minimapCtx = minimap?.getContext?.("2d");
 
-let lastMinimapFrac = null; // {xFrac,yFrac}
 let lastCanvasFrac = null; // {xFrac,yFrac}
 let pinnedCanvasFrac = null; // {xFrac,yFrac}
 let coordMode = false;
@@ -104,12 +104,14 @@ let coordMode = false;
 let tailFocusOn = true;
 
 let lastWinner = null;
+/** setWinnerCache helper. */
 function setWinnerCache(payload) {
   lastWinner = payload || null;
   if (winnerBtn) winnerBtn.disabled = !lastWinner;
 }
 
 const imagesById = new Map();
+/** refreshImages helper. */
 function refreshImages() {
   imagesById.clear();
   for (const b of ballsCatalog) {
@@ -120,6 +122,7 @@ function refreshImages() {
 }
 refreshImages();
 
+/** setBalls helper. */
 function setBalls(next) {
   ballsCatalog = next;
   state.ballsCatalog = next;
@@ -140,6 +143,7 @@ const settings = mountSettingsDialog(
   setBalls
 );
 
+/** makeNewBall helper. */
 function makeNewBall() {
   const h = Math.floor(Math.random() * 360);
   const bg0 = `hsl(${h}, 95%, 58%)`;
@@ -181,6 +185,7 @@ addBallBtn?.addEventListener("click", () => {
   settings.render?.();
 });
 
+/** renderBallCards helper. */
 function renderBallCards() {
   // Avoid innerHTML to reduce the chance of accidental XSS patterns.
   ballsEl.replaceChildren();
@@ -230,6 +235,7 @@ function renderBallCards() {
     plus.type = "button";
     plus.textContent = "+";
 
+    /** applyDelta helper. */
     const applyDelta = (d) => {
       if (state.mode === "playing") return;
       const next = getBallCount(state, b.id) + d;
@@ -267,6 +273,7 @@ function renderBallCards() {
 }
 renderBallCards();
 
+/** updateControls helper. */
 function updateControls() {
   const total = getTotalSelectedCount(state);
   startBtn.disabled = state.mode === "playing";
@@ -283,10 +290,12 @@ function updateControls() {
       : `수량을 고른 뒤 시작하세요. 총 ${total}개`;
 }
 
+/** setResultText helper. */
 function setResultText(msg) {
   resultEl.textContent = msg || "";
 }
 
+/** updateCanvasCoordReadout helper. */
 function updateCanvasCoordReadout(xFrac, yFrac) {
   if (!coordMode) return;
   lastCanvasFrac =
@@ -300,6 +309,7 @@ function updateCanvasCoordReadout(xFrac, yFrac) {
   if (canvasCoordCopyBtn) canvasCoordCopyBtn.disabled = !show;
 }
 
+/** clamp01 helper. */
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
@@ -330,6 +340,7 @@ async function copyText(s) {
   }
 }
 
+/** playFanfare helper. */
 function playFanfare() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -366,10 +377,12 @@ let bgm = {
   nextT: 0,
 };
 
+/** midiToHz helper. */
 function midiToHz(n) {
   return 440 * Math.pow(2, (n - 69) / 12);
 }
 
+/** bgmStop helper. */
 function bgmStop() {
   if (bgm.timer) {
     clearInterval(bgm.timer);
@@ -387,6 +400,7 @@ function bgmStop() {
   bgm.loopSec = 0;
 }
 
+/** bgmStart helper. */
 function bgmStart() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
@@ -426,6 +440,7 @@ function bgmStart() {
     50, 50, 50, 50, 48, 48, 48, 48,
   ];
 
+  /** playTone helper. */
   function playTone(type, hz, start, dur, vol) {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
@@ -440,6 +455,7 @@ function bgmStart() {
     o.stop(start + dur + 0.02);
   }
 
+  /** schedule helper. */
   function schedule(fromT, horizonSec) {
     const endT = fromT + horizonSec;
     let t = bgm.nextT;
@@ -466,6 +482,7 @@ function bgmStart() {
   }, 320);
 }
 
+/** setBgmOn helper. */
 function setBgmOn(on) {
   bgm.on = !!on;
   try { localStorage.setItem("bgmOn", bgm.on ? "1" : "0"); } catch {}
@@ -477,6 +494,7 @@ function setBgmOn(on) {
   else bgmStop();
 }
 
+/** getWinnerPayloadFromState helper. */
 function getWinnerPayloadFromState() {
   if (!state?.winner) return null;
   const b = ballsCatalog.find((x) => x.id === state.winner?.ballId);
@@ -489,6 +507,7 @@ function getWinnerPayloadFromState() {
   };
 }
 
+/** showWinnerModal helper. */
 function showWinnerModal() {
   if (!winnerDialog) return;
   const payload = lastWinner || getWinnerPayloadFromState();
@@ -511,6 +530,7 @@ function showWinnerModal() {
   }
 }
 
+/** tryStart helper. */
 function tryStart() {
   if (getTotalSelectedCount(state) <= 0) {
     setResultText("최소 1개 이상 선택하세요.");
@@ -595,6 +615,7 @@ document.addEventListener("keydown", async (e) => {
   }
 });
 
+/** tickFixed helper. */
 function tickFixed(ms) {
   const dt = 1 / 60;
   const steps = Math.max(1, Math.round((ms / 1000) / dt));
@@ -603,6 +624,7 @@ function tickFixed(ms) {
   onAfterFrame();
 }
 
+/** onAfterFrame helper. */
 function onAfterFrame() {
   if (state.winner && state._shownWinnerT !== state.winner.t) {
     state._shownWinnerT = state.winner.t;
@@ -627,12 +649,8 @@ window.advanceTime = async (ms) => {
   tickFixed(ms);
 };
 
-function resize() {
-  // Deprecated: kept for any external callers.
-  scheduleResize();
-}
-
 let _resizeRaf = 0;
+/** scheduleResize helper. */
 function scheduleResize() {
   if (_resizeRaf) return;
   _resizeRaf = requestAnimationFrame(() => {
@@ -651,6 +669,7 @@ scheduleResize();
 
 // Animation loop for interactive play. `advanceTime()` overrides are for automation.
 let last = performance.now();
+/** raf helper. */
 function raf(now) {
   const dtMs = Math.min(40, now - last);
   last = now;
@@ -660,6 +679,7 @@ function raf(now) {
 }
 requestAnimationFrame(raf);
 
+/** drawMinimap helper. */
 function drawMinimap() {
   if (!minimapCtx || !minimap) return;
   const w = minimap.width;
@@ -733,17 +753,18 @@ function drawMinimap() {
   }
 }
 
+/** clamp helper. */
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
 
 if (minimap) {
+  /** onPick helper. */
   const onPick = (e) => {
     // Free view mode only. If the user interacts with the minimap, switch to free view.
     tailFocusOn = false;
     if (viewLockEl) viewLockEl.checked = false;
     const rect = minimap.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
     const v = renderer.getViewState?.();
     const viewH = v?.viewHWorld ?? board.worldH;
@@ -809,12 +830,12 @@ document.addEventListener("keydown", (e) => {
   updateCanvasCoordReadout(NaN, NaN);
 });
 
+/** setCoordMode helper. */
 function setCoordMode(on) {
   coordMode = !!on;
   document.documentElement.classList.toggle("coord-mode", coordMode);
   pinnedCanvasFrac = null;
   lastCanvasFrac = null;
-  lastMinimapFrac = null;
   // Refresh readouts if visible.
   if (coordMode) {
     updateCanvasCoordReadout(NaN, NaN);

@@ -1,9 +1,11 @@
+/** makeRenderer helper. */
 export function makeRenderer(canvas, { board }) {
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("2D context not available");
 
   const dpr = () => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const bootMs = performance.now();
+  /** hashStr helper. */
   const hashStr = (s) => {
     // Small deterministic hash for stable per-entity color offsets.
     let h = 2166136261 >>> 0;
@@ -33,6 +35,7 @@ export function makeRenderer(canvas, { board }) {
     patternSeed: 0,
   };
 
+  /** resizeToFit helper. */
   function resizeToFit() {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
@@ -49,18 +52,16 @@ export function makeRenderer(canvas, { board }) {
     ctx.setTransform(r, 0, 0, r, 0, 0);
   }
 
+  /** worldToScreen helper. */
   function worldToScreen(x, y) {
     return { x: view.ox + x * view.scale, y: view.oy + (y - view.cameraY) * view.scale };
   }
+  /** screenToWorld helper. */
   function screenToWorld(x, y) {
     return { x: (x - view.ox) / view.scale, y: (y - view.oy) / view.scale + view.cameraY };
   }
 
-  const bg = {
-    gridA: "rgba(255,255,255,0.05)",
-    gridB: "rgba(255,255,255,0.02)"
-  };
-
+  /** makeCanvas helper. */
   function makeCanvas(w, h) {
     const c = document.createElement("canvas");
     c.width = Math.max(1, w | 0);
@@ -68,6 +69,7 @@ export function makeRenderer(canvas, { board }) {
     return c;
   }
 
+  /** ensureBgCache helper. */
   function ensureBgCache(cssW, cssH) {
     if (!bgCache.base || bgCache.w !== cssW || bgCache.h !== cssH) {
       bgCache.w = cssW | 0;
@@ -172,6 +174,7 @@ export function makeRenderer(canvas, { board }) {
     }
   }
 
+  /** drawBoardBase helper. */
   function drawBoardBase(tSec = 0) {
     // Use real time so the background animates even when the simulation is paused (menu, dialogs, etc).
     const rt = (performance.now() - bootMs) / 1000;
@@ -225,6 +228,7 @@ export function makeRenderer(canvas, { board }) {
     ctx.restore();
   }
 
+  /** draw helper. */
   function draw(state, ballsCatalog, imagesById) {
     drawBoardBase(state?.t || 0);
 
@@ -612,6 +616,7 @@ export function makeRenderer(canvas, { board }) {
   };
 }
 
+/** roundRect helper. */
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   ctx.beginPath();
@@ -623,26 +628,16 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+/** clamp helper. */
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
+/** clampInt helper. */
 function clampInt(v, a, b) {
   return Math.max(a, Math.min(b, v | 0));
 }
 
-function drawArrow(ctx, x, y, dir) {
-  const len = 20;
-  const head = 6;
-  ctx.beginPath();
-  ctx.moveTo(x - (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir, y);
-  ctx.moveTo(x + (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir - head * dir, y - head);
-  ctx.moveTo(x + (len / 2) * dir, y);
-  ctx.lineTo(x + (len / 2) * dir - head * dir, y + head);
-  ctx.stroke();
-}
-
+/** corridorAt helper. */
 function corridorAt(board, y) {
   const c = board.corridor;
   if (!c) return { left: 0, right: board.worldW };
@@ -653,11 +648,13 @@ function corridorAt(board, y) {
   return { left: clamp(cx - hw, 0, board.worldW), right: clamp(cx + hw, 0, board.worldW) };
 }
 
+/** smoothstep helper. */
 function smoothstep(x) {
   const t = clamp(x, 0, 1);
   return t * t * (3 - 2 * t);
 }
 
+/** lerp helper. */
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
