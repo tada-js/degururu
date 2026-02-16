@@ -1,21 +1,39 @@
-// @ts-nocheck
-function escapeXml(s) {
+type BallCatalogItem = {
+  id: string;
+  name: string;
+  imageDataUrl: string;
+  tint: string;
+};
+
+function escapeXml(s: string): string {
   return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-function firstChar(s) {
+function firstChar(s: string): string {
   // Properly handles Hangul/etc by iterating Unicode codepoints.
   return Array.from(String(s || ""))[0] || "?";
 }
 
-function sanitizeHexColor(v, fallback) {
+function sanitizeHexColor(v: unknown, fallback: string): string {
   const s = String(v || "");
   if (/^#[0-9a-fA-F]{3}$/.test(s)) return s;
   if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
   return fallback;
 }
 
-function makeLetterBall({ id, name, c0, c1, tint }) {
+function makeLetterBall({
+  id,
+  name,
+  c0,
+  c1,
+  tint,
+}: {
+  id: string;
+  name: string;
+  c0: unknown;
+  c1: unknown;
+  tint: unknown;
+}): BallCatalogItem {
   const ch = escapeXml(firstChar(name));
   const sc0 = sanitizeHexColor(c0, "#ffffff");
   const sc1 = sanitizeHexColor(c1, sc0);
@@ -49,14 +67,14 @@ function makeLetterBall({ id, name, c0, c1, tint }) {
   return { id, name, imageDataUrl: svg, tint: st };
 }
 
-export const DEFAULT_BALLS = [
+export const DEFAULT_BALLS: BallCatalogItem[] = [
   makeLetterBall({ id: "dog", name: "강아지", c0: "#ffd36b", c1: "#ff2e7a", tint: "#ffb000" }),
   makeLetterBall({ id: "rabbit", name: "토끼", c0: "#7df3d3", c1: "#2aa6ff", tint: "#45f3c3" }),
   makeLetterBall({ id: "hamster", name: "햄스터", c0: "#ffe9b7", c1: "#caa0ff", tint: "#caa0ff" }),
 ];
 
 // Library for adding new balls (capped to 15).
-export const BALL_LIBRARY = [
+export const BALL_LIBRARY: BallCatalogItem[] = [
   ...DEFAULT_BALLS,
   makeLetterBall({ id: "cat", name: "고양이", c0: "#ff7ad9", c1: "#7a5cff", tint: "#ff7ad9" }),
   makeLetterBall({ id: "guineapig", name: "기니피그", c0: "#ffde7a", c1: "#ff7a7a", tint: "#ffde7a" }),

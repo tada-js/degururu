@@ -1,11 +1,10 @@
-// @ts-nocheck
-import { makeBoard } from "./engine.ts";
+import { makeBoard, type CustomRotorInput } from "./engine.ts";
 
 /**
  * Hand-tuned extra rotors (world coords or xFrac/yFrac in [0..1]).
  * These override auto-added mid-section rotors (early rotor ring stays).
  */
-export const CUSTOM_ROTORS = [
+export const CUSTOM_ROTORS: CustomRotorInput[] = [
   { xFrac: 0.220, yFrac: 0.629, omega: 11.2 },
   { xFrac: 0.342, yFrac: 0.629, omega: -11.2 },
   { xFrac: 0.140, yFrac: 0.722, omega: 11.8 },
