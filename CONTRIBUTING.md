@@ -34,3 +34,9 @@ EOF
 
 gh pr create --title "feat: ..." --body-file /tmp/pr_body.md
 ```
+
+## 보안 스캔 정책 (gitleaks)
+
+- `.gitleaks.toml`의 `[allowlist].regexes` 항목은 각 항목 바로 위에 `# reason:` 근거 주석이 있어야 함
+- 예외는 placeholder/문서 샘플 등 비밀값이 아님이 명확한 경우만 허용
+- CI에서 `node scripts/validate-gitleaks-allowlist.mjs`로 정책을 강제함
