@@ -1,4 +1,4 @@
-import type { AriaAttributes, MouseEventHandler, ReactNode } from "react";
+import type { AriaAttributes, MouseEventHandler, ReactNode, Ref } from "react";
 
 type ButtonVariant = "primary" | "ghost" | "danger" | "accent";
 type ButtonSize = "sm" | "md" | "lg";
@@ -17,6 +17,8 @@ type ButtonProps = {
   ariaPressed?: boolean;
   ariaHasPopup?: AriaAttributes["aria-haspopup"];
   ariaExpanded?: boolean;
+  autoFocus?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
   onClick?: MouseEventHandler<HTMLButtonElement>;
   children?: ReactNode;
 };
@@ -51,6 +53,8 @@ export function Button(props: ButtonProps) {
     ariaPressed,
     ariaHasPopup,
     ariaExpanded,
+    autoFocus,
+    buttonRef,
     onClick,
     children,
   } = props;
@@ -86,6 +90,8 @@ export function Button(props: ButtonProps) {
       aria-pressed={ariaPressed}
       aria-haspopup={ariaHasPopup}
       aria-expanded={ariaExpanded}
+      autoFocus={autoFocus}
+      ref={buttonRef}
       onClick={onClick}
     >
       {children}

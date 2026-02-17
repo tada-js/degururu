@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "../../src/ui-react/components/button";
-import { ModalCard } from "../../src/ui-react/components/modal";
+import { Button } from "../../src/ui-react/components/Button";
+import { ModalCard } from "../../src/ui-react/components/Modal";
 
 const meta = {
   title: "Design System/ModalCard",
