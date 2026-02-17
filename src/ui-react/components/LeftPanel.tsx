@@ -3,6 +3,12 @@ import { Button } from "./Button";
 import { AppIcon } from "./Icons";
 
 const START_CAPTION_MAX = 28;
+const MOBILE_MEDIA_QUERY = "(max-width: 720px)";
+
+function readMobileViewport(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+}
 
 type LeftPanelBall = {
   id: string;
@@ -53,12 +59,19 @@ export function LeftPanel(props: LeftPanelProps) {
     onReorderBall,
   } = props;
   const isLocked = !!balls.find((ball) => ball.locked);
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(readMobileViewport);
   const [draggingBallId, setDraggingBallId] = useState<string | null>(null);
   const [dropTargetBallId, setDropTargetBallId] = useState<string | null>(null);
+  const [participantsFoldOpen, setParticipantsFoldOpen] = useState<boolean>(true);
+  const [resultFoldOpen, setResultFoldOpen] = useState<boolean>(() => !readMobileViewport());
+  const [captionFoldOpen, setCaptionFoldOpen] = useState<boolean>(() => !readMobileViewport());
   const canDecreaseResultCount = winnerCount > 1;
   const canIncreaseResultCount = winnerCount < winnerCountMax;
   const totalParticipants = balls.reduce((sum, ball) => sum + Math.max(0, Math.floor(Number(ball.count) || 0)), 0);
   const startCaptionLength = String(startCaption || "").length;
+  const showParticipants = !isMobileViewport || participantsFoldOpen;
+  const showResultOption = !isMobileViewport || resultFoldOpen;
+  const showStartCaption = !isMobileViewport || captionFoldOpen;
 
   function clearDragState() {
     setDraggingBallId(null);
@@ -109,6 +122,19 @@ export function LeftPanel(props: LeftPanelProps) {
     setDropTargetBallId(null);
   }, [isLocked]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const onChange = (event: MediaQueryListEvent) => setIsMobileViewport(event.matches);
+    setIsMobileViewport(mediaQuery.matches);
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", onChange);
+      return () => mediaQuery.removeEventListener("change", onChange);
+    }
+    mediaQuery.addListener(onChange);
+    return () => mediaQuery.removeListener(onChange);
+  }, []);
+
   return (
     <div className="hud">
       <div className="mini">
@@ -141,182 +167,237 @@ export function LeftPanel(props: LeftPanelProps) {
       <section className={`panelCard panelCard--participants ${isLocked ? "is-locked" : ""}`}>
         <div className="panelCard__header">
           <div className="panelCard__title">{`참가자 목록(${totalParticipants})`}</div>
-          <Button id="settings-btn" variant="ghost" size="sm" disabled={isLocked} onClick={onOpenSettings}>
-            참가자 설정
-          </Button>
+          <div className="panelCard__headerActions">
+            <Button id="settings-btn" variant="ghost" size="sm" disabled={isLocked} onClick={onOpenSettings}>
+              참가자 설정
+            </Button>
+            {isMobileViewport && (
+              <button
+                type="button"
+                className="mobileFold__toggleBtn"
+                aria-label={showParticipants ? "참가자 목록 접기" : "참가자 목록 펼치기"}
+                aria-controls="participant-list-body"
+                aria-expanded={showParticipants}
+                onClick={() => setParticipantsFoldOpen((prev) => !prev)}
+              >
+                <span className={`mobileFold__caret ${showParticipants ? "is-open" : ""}`} aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+            )}
+          </div>
         </div>
-        <div className={`participantListWrap ${isLocked ? "is-locked" : ""}`}>
-          <div className="participantList" id="balls" aria-hidden={isLocked ? "true" : undefined}>
-            {balls.map((ball) => {
-              const rowClassName = [
-                "participantRow",
-                draggingBallId === ball.id ? "is-dragging" : "",
-                dropTargetBallId === ball.id && draggingBallId !== ball.id ? "is-drop-target" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
+        {showParticipants && (
+          <div id="participant-list-body" className={`participantListWrap ${isLocked ? "is-locked" : ""}`}>
+            <div className="participantList" id="balls" aria-hidden={isLocked ? "true" : undefined}>
+              {balls.map((ball) => {
+                const rowClassName = [
+                  "participantRow",
+                  draggingBallId === ball.id ? "is-dragging" : "",
+                  dropTargetBallId === ball.id && draggingBallId !== ball.id ? "is-drop-target" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
-              return (
-                <div
-                  key={ball.id}
-                  className={`${rowClassName} tooltip`}
-                  data-tip={ball.name}
-                  title={ball.name}
-                  aria-label={ball.name}
-                  role="group"
-                  onDragOver={(event) => handleDragOver(ball.id, event)}
-                  onDrop={(event) => handleDrop(ball.id, event)}
-                >
-                  <button
-                    type="button"
-                    className="participantRow__dragHandle"
-                    aria-label={`${ball.name} 순서 이동`}
-                    title={isLocked ? "진행 중에는 순서를 변경할 수 없어요." : "드래그해서 순서를 변경하세요."}
-                    draggable={!isLocked}
-                    disabled={isLocked}
-                    onDragStart={(event) => handleDragStart(ball.id, event)}
-                    onDragEnd={handleDragEnd}
+                return (
+                  <div
+                    key={ball.id}
+                    className={`${rowClassName} tooltip`}
+                    data-tip={ball.name}
+                    title={ball.name}
+                    aria-label={ball.name}
+                    role="group"
+                    onDragOver={(event) => handleDragOver(ball.id, event)}
+                    onDrop={(event) => handleDrop(ball.id, event)}
                   >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <circle cx="8" cy="6.5" r="1.4" />
-                      <circle cx="8" cy="12" r="1.4" />
-                      <circle cx="8" cy="17.5" r="1.4" />
-                      <circle cx="16" cy="6.5" r="1.4" />
-                      <circle cx="16" cy="12" r="1.4" />
-                      <circle cx="16" cy="17.5" r="1.4" />
-                    </svg>
-                  </button>
+                    <button
+                      type="button"
+                      className="participantRow__dragHandle"
+                      aria-label={`${ball.name} 순서 이동`}
+                      title={isLocked ? "진행 중에는 순서를 변경할 수 없어요." : "드래그해서 순서를 변경하세요."}
+                      draggable={!isLocked}
+                      disabled={isLocked}
+                      onDragStart={(event) => handleDragStart(ball.id, event)}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="8" cy="6.5" r="1.4" />
+                        <circle cx="8" cy="12" r="1.4" />
+                        <circle cx="8" cy="17.5" r="1.4" />
+                        <circle cx="16" cy="6.5" r="1.4" />
+                        <circle cx="16" cy="12" r="1.4" />
+                        <circle cx="16" cy="17.5" r="1.4" />
+                      </svg>
+                    </button>
 
-                  <div className="participantRow__thumb">
-                    <img alt={ball.name} src={ball.imageDataUrl} />
-                  </div>
+                    <div className="participantRow__thumb">
+                      <img alt={ball.name} src={ball.imageDataUrl} />
+                    </div>
 
-                  <div className="participantRow__meta">
-                    <div className="participantRow__name">
-                      <span className="participantRow__nameText">{ball.name}</span>
+                    <div className="participantRow__meta">
+                      <div className="participantRow__name">
+                        <span className="participantRow__nameText">{ball.name}</span>
+                      </div>
+                    </div>
+
+                    <div className="participantRow__qty">
+                      <Button
+                        variant="ghost"
+                        className="participantRow__qtyBtn"
+                        disabled={ball.locked}
+                        onClick={() => onAdjustBallCount(ball.id, -1)}
+                      >
+                        -
+                      </Button>
+                      <input
+                        className="participantRow__count"
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        max="99"
+                        step="1"
+                        value={String(ball.count)}
+                        aria-label={`${ball.name} 개수`}
+                        disabled={ball.locked}
+                        onChange={(event) => onSetBallCount(ball.id, Number(event.currentTarget.value))}
+                      />
+                      <Button
+                        variant="ghost"
+                        className="participantRow__qtyBtn"
+                        disabled={ball.locked}
+                        onClick={() => onAdjustBallCount(ball.id, 1)}
+                      >
+                        +
+                      </Button>
                     </div>
                   </div>
-
-                  <div className="participantRow__qty">
-                    <Button
-                      variant="ghost"
-                      className="participantRow__qtyBtn"
-                      disabled={ball.locked}
-                      onClick={() => onAdjustBallCount(ball.id, -1)}
-                    >
-                      -
-                    </Button>
-                    <input
-                      className="participantRow__count"
-                      type="number"
-                      inputMode="numeric"
-                      min="0"
-                      max="99"
-                      step="1"
-                      value={String(ball.count)}
-                      aria-label={`${ball.name} 개수`}
-                      disabled={ball.locked}
-                      onChange={(event) => onSetBallCount(ball.id, Number(event.currentTarget.value))}
-                    />
-                    <Button
-                      variant="ghost"
-                      className="participantRow__qtyBtn"
-                      disabled={ball.locked}
-                      onClick={() => onAdjustBallCount(ball.id, 1)}
-                    >
-                      +
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {isLocked ? (
-            <div className="participantList__lockOverlay" role="status" aria-live="polite">
-              <AppIcon name="lock" />
-              <span>진행 중에는 편집이 잠겨요</span>
+                );
+              })}
             </div>
-          ) : null}
-        </div>
+            {isLocked && (
+              <div className="participantList__lockOverlay" role="status" aria-live="polite">
+                <AppIcon name="lock" />
+                <span>진행 중에는 편집이 잠겨요</span>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
-      <div className={`resultOption resultOption--inline ${isLocked ? "is-disabled" : ""}`}>
-        <div className="resultOption__row">
-          <div className="resultOption__label">당첨자 수</div>
-          <div
-            className={`resultOption__viewWrap ${resultDisabled ? "tooltip" : ""}`}
-            data-tip={resultDisabled ? "결과 보기는 게임 종료 이후 확인할 수 있습니다." : undefined}
+      <div className={`resultOption resultOption--inline ${isLocked ? "is-disabled" : ""} ${isMobileViewport ? "is-mobileFold" : ""}`}>
+        {isMobileViewport && (
+          <button
+            type="button"
+            className="mobileFold__toggle"
+            aria-expanded={showResultOption}
+            aria-controls="result-option-body"
+            onClick={() => setResultFoldOpen((prev) => !prev)}
           >
-            <Button
-              id="winner-btn"
-              variant="ghost"
-              size="sm"
-              className="resultOption__viewBtn"
-              disabled={resultDisabled}
-              onClick={onOpenResult}
-            >
-              결과 보기
-            </Button>
-          </div>
-        </div>
+            <span className="mobileFold__label">당첨자 수</span>
+            <span className={`mobileFold__caret ${showResultOption ? "is-open" : ""}`} aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        )}
+        {showResultOption && (
+          <>
+            <div className="resultOption__row" id="result-option-body">
+              <div className="resultOption__label">당첨자 수</div>
+              <div
+                className={`resultOption__viewWrap ${resultDisabled ? "tooltip" : ""}`}
+                data-tip={resultDisabled ? "결과 보기는 게임 종료 이후 확인할 수 있습니다." : undefined}
+              >
+                <Button
+                  id="winner-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="resultOption__viewBtn"
+                  disabled={resultDisabled}
+                  onClick={onOpenResult}
+                >
+                  결과 보기
+                </Button>
+              </div>
+            </div>
 
-        <div className="resultOption__controls">
-          <div className="resultOption__stepper">
-            <Button
-              variant="ghost"
-              className="resultOption__stepBtn"
-              disabled={isLocked || !canDecreaseResultCount}
-              onClick={() => onSetWinnerCount(winnerCount - 1)}
-            >
-              -
-            </Button>
-            <input
-              id="winner-count-input"
-              className="resultOption__input"
-              type="number"
-              min={1}
-              max={winnerCountMax}
-              step={1}
-              value={String(winnerCount)}
-              disabled={isLocked}
-              onChange={(event) => onSetWinnerCount(Number(event.currentTarget.value))}
-            />
-            <Button
-              variant="ghost"
-              className="resultOption__stepBtn"
-              disabled={isLocked || !canIncreaseResultCount}
-              onClick={() => onSetWinnerCount(winnerCount + 1)}
-            >
-              +
-            </Button>
-          </div>
-        </div>
-        <div className="resultOption__helper">가장 늦게 도착한 순서대로 결과를 공개합니다.</div>
-        {winnerCountWasClamped ? (
-          <div className="resultOption__hint">참가자 수를 넘어 자동으로 참가자 수로 맞춰졌습니다.</div>
-        ) : null}
+            <div className="resultOption__controls">
+              <div className="resultOption__stepper">
+                <Button
+                  variant="ghost"
+                  className="resultOption__stepBtn"
+                  disabled={isLocked || !canDecreaseResultCount}
+                  onClick={() => onSetWinnerCount(winnerCount - 1)}
+                >
+                  -
+                </Button>
+                <input
+                  id="winner-count-input"
+                  className="resultOption__input"
+                  type="number"
+                  min={1}
+                  max={winnerCountMax}
+                  step={1}
+                  value={String(winnerCount)}
+                  disabled={isLocked}
+                  onChange={(event) => onSetWinnerCount(Number(event.currentTarget.value))}
+                />
+                <Button
+                  variant="ghost"
+                  className="resultOption__stepBtn"
+                  disabled={isLocked || !canIncreaseResultCount}
+                  onClick={() => onSetWinnerCount(winnerCount + 1)}
+                >
+                  +
+                </Button>
+              </div>
+            </div>
+            <div className="resultOption__helper">가장 늦게 도착한 순서대로 결과를 공개합니다.</div>
+            {winnerCountWasClamped && (
+              <div className="resultOption__hint">참가자 수를 넘어 자동으로 참가자 수로 맞춰졌습니다.</div>
+            )}
+          </>
+        )}
       </div>
 
-      <div className={`startCaption ${isLocked ? "is-disabled" : ""}`}>
-        <div className="startCaption__labelRow">
-          <label className="startCaption__label" htmlFor="start-caption-input">
-            시작지점 문구
-          </label>
-          <span className="startCaption__count">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
-        </div>
-        <input
-          id="start-caption-input"
-          className="startCaption__input"
-          type="text"
-          maxLength={START_CAPTION_MAX}
-          placeholder="예) 두근두근 당첨자는 누구일까요?"
-          value={startCaption}
-          disabled={isLocked}
-          onChange={(event) => onSetStartCaption(event.currentTarget.value)}
-        />
-        <div className="startCaption__hint">
-          {isLocked ? "진행 중에는 변경할 수 없어요." : "띄어쓰기 포함 최대 28자, 시작지점 상단에 표시됩니다."}
-        </div>
+      <div className={`startCaption ${isLocked ? "is-disabled" : ""} ${isMobileViewport ? "is-mobileFold" : ""}`}>
+        {isMobileViewport && (
+          <button
+            type="button"
+            className="mobileFold__toggle"
+            aria-expanded={showStartCaption}
+            aria-controls="start-caption-body"
+            onClick={() => setCaptionFoldOpen((prev) => !prev)}
+          >
+            <span className="mobileFold__label">시작지점 문구</span>
+            <span className="mobileFold__meta">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
+            <span className={`mobileFold__caret ${showStartCaption ? "is-open" : ""}`} aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        )}
+        {showStartCaption && (
+          <div id="start-caption-body">
+            <div className="startCaption__labelRow">
+              <label className="startCaption__label" htmlFor="start-caption-input">
+                시작지점 문구
+              </label>
+              <span className="startCaption__count">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
+            </div>
+            <input
+              id="start-caption-input"
+              className="startCaption__input"
+              type="text"
+              maxLength={START_CAPTION_MAX}
+              placeholder="예) 두근두근 당첨자는 누구일까요?"
+              value={startCaption}
+              disabled={isLocked}
+              onChange={(event) => onSetStartCaption(event.currentTarget.value)}
+            />
+            <div className="startCaption__hint">
+              {isLocked ? "진행 중에는 변경할 수 없어요." : "띄어쓰기 포함 최대 28자, 시작지점 상단에 표시됩니다."}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
