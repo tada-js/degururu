@@ -24,6 +24,8 @@ const SPIN_SETTLE_MS = 130;
 const REEL_ITEM_HEIGHT = 68;
 const REEL_CENTER_Y = REEL_ITEM_HEIGHT;
 
+type ResultViewKind = "spinning" | "single" | "summary" | "waiting";
+
 function easeOutCubic(t: number) {
   return 1 - (1 - t) ** 3;
 }
@@ -34,6 +36,19 @@ function easeOutQuad(t: number) {
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
+}
+
+function getResultViewKind(params: {
+  isSpinning: boolean;
+  spinPlan: { items: Array<{ key: string; ballId: string; name: string; img: string }>; startY: number; stopY: number; overshootY: number } | null;
+  isSingle: boolean;
+  hasWinner: boolean;
+  isSummary: boolean;
+}): ResultViewKind {
+  if (params.isSpinning && params.spinPlan) return "spinning";
+  if (params.isSingle && params.hasWinner) return "single";
+  if (params.isSummary) return "summary";
+  return "waiting";
 }
 
 export function ResultModal({
@@ -192,77 +207,94 @@ export function ResultModal({
 
   const resultCountTitle = `당첨자 목록(${state.items.length})`;
   const title = isSpinning ? "결과 선택 중…" : resultCountTitle;
+  const viewKind = getResultViewKind({
+    isSpinning,
+    spinPlan,
+    isSingle,
+    hasWinner: Boolean(finalWinner),
+    isSummary,
+  });
+
+  const renderBody = () => {
+    if (viewKind === "spinning" && spinPlan) {
+      return (
+        <div className="resultSpinView">
+          <div className="resultSpinView__status">결과 선택 중…</div>
+          <div className="resultSpinView__viewport" ref={reelViewportRef} aria-live="polite">
+            <div className="resultSpinView__track" ref={reelTrackRef}>
+              {spinPlan.items.map((item) => (
+                <div className="resultSpinView__item" key={item.key}>
+                  <div className="resultSpinView__thumb">
+                    <img src={item.img || "data:,"} alt={item.name} />
+                  </div>
+                  <div className="resultSpinView__name">{item.name}</div>
+                </div>
+              ))}
+            </div>
+            <div className="resultSpinView__center" aria-hidden="true"></div>
+            <div className="resultSpinView__fade resultSpinView__fade--top" aria-hidden="true"></div>
+            <div className="resultSpinView__fade resultSpinView__fade--bottom" aria-hidden="true"></div>
+          </div>
+        </div>
+      );
+    }
+
+    if (viewKind === "single" && finalWinner) {
+      return (
+        <div className="resultSingleCard">
+          <div className="resultSingleCard__thumb">
+            <img src={finalWinner.img || "data:,"} alt={finalWinner.name} />
+          </div>
+          <div className="resultSingleCard__name">{finalWinner.name}</div>
+        </div>
+      );
+    }
+
+    if (viewKind === "summary") {
+      return (
+        <ol className="resultSummaryList">
+          {state.items.map((item) => (
+            <li key={`${item.rank}-${item.ballId}-${item.finishedAt}`} className={`resultSummaryList__item ${item.rank === 1 ? "is-top" : ""}`}>
+              <span className="resultSummaryList__rank">#{item.rank}</span>
+              <span className="resultSummaryList__name">{item.name}</span>
+            </li>
+          ))}
+        </ol>
+      );
+    }
+
+    return <div className="resultRevealWaiting">결과를 준비하고 있어요.</div>;
+  };
+
+  const renderFooter = () => {
+    if (isSpinning) {
+      return (
+        <div className="resultModal__actions">
+          <Button variant="ghost" type="button" buttonRef={skipButtonRef} onClick={onSkip}>
+            모두 보기
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="resultModal__actions">
+        <Button variant="ghost" className="resultModal__copy" type="button" onClick={onCopy}>
+          결과 복사
+        </Button>
+        <Button variant="accent" type="button" buttonRef={restartButtonRef} onClick={onRestart}>
+          다시 시작
+        </Button>
+        <Button variant="ghost" type="button" onClick={onClose}>
+          닫기
+        </Button>
+      </div>
+    );
+  };
 
   return (
-    <ModalCard
-      size="md"
-      title={title}
-      onClose={onClose}
-      footer={
-        <div className="resultModal__actions">
-          {isSpinning ? (
-            <Button variant="ghost" type="button" buttonRef={skipButtonRef} onClick={onSkip}>
-              모두 보기
-            </Button>
-          ) : (
-            <>
-              <Button variant="ghost" className="resultModal__copy" type="button" onClick={onCopy}>
-                결과 복사
-              </Button>
-              <Button variant="accent" type="button" buttonRef={restartButtonRef} onClick={onRestart}>
-                다시 시작
-              </Button>
-              <Button variant="ghost" type="button" onClick={onClose}>
-                닫기
-              </Button>
-            </>
-          )}
-        </div>
-      }
-    >
-      <div className="resultModal__body">
-        {isSpinning && spinPlan ? (
-          <div className="resultSpinView">
-            <div className="resultSpinView__status">결과 선택 중…</div>
-            <div className="resultSpinView__viewport" ref={reelViewportRef} aria-live="polite">
-              <div className="resultSpinView__track" ref={reelTrackRef}>
-                {spinPlan.items.map((item) => (
-                  <div className="resultSpinView__item" key={item.key}>
-                    <div className="resultSpinView__thumb">
-                      <img src={item.img || "data:,"} alt={item.name} />
-                    </div>
-                    <div className="resultSpinView__name">{item.name}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="resultSpinView__center" aria-hidden="true"></div>
-              <div className="resultSpinView__fade resultSpinView__fade--top" aria-hidden="true"></div>
-              <div className="resultSpinView__fade resultSpinView__fade--bottom" aria-hidden="true"></div>
-            </div>
-          </div>
-        ) : isSingle && finalWinner ? (
-          <div className="resultSingleCard">
-            <div className="resultSingleCard__thumb">
-              <img src={finalWinner.img || "data:,"} alt={finalWinner.name} />
-            </div>
-            <div className="resultSingleCard__name">{finalWinner.name}</div>
-          </div>
-        ) : isSummary ? (
-          <ol className="resultSummaryList">
-            {state.items.map((item) => (
-              <li
-                key={`${item.rank}-${item.ballId}-${item.finishedAt}`}
-                className={`resultSummaryList__item ${item.rank === 1 ? "is-top" : ""}`}
-              >
-                <span className="resultSummaryList__rank">#{item.rank}</span>
-                <span className="resultSummaryList__name">{item.name}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <div className="resultRevealWaiting">결과를 준비하고 있어요.</div>
-        )}
-      </div>
+    <ModalCard size="md" title={title} onClose={onClose} footer={renderFooter()}>
+      <div className="resultModal__body">{renderBody()}</div>
     </ModalCard>
   );
 }

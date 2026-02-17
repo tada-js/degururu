@@ -6,6 +6,11 @@ import { transformSync } from "esbuild";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
 const exts = new Set([".js", ".mjs", ".jsx", ".ts", ".tsx"]);
+const loaderByExt = new Map([
+  [".jsx", "jsx"],
+  [".tsx", "tsx"],
+  [".ts", "ts"],
+]);
 
 function walk(dir, out) {
   for (const ent of readdirSync(dir)) {
@@ -26,7 +31,8 @@ for (const f of files) {
     const ext = path.extname(f);
     if (ext === ".jsx" || ext === ".tsx" || ext === ".ts") {
       const source = readFileSync(f, "utf8");
-      const loader = ext === ".jsx" ? "jsx" : ext === ".tsx" ? "tsx" : "ts";
+      const loader = loaderByExt.get(ext);
+      if (!loader) throw new Error(`Unsupported loader extension: ${ext}`);
       transformSync(source, { loader, format: "esm" });
     } else {
       execFileSync(process.execPath, ["--check", f], { stdio: "pipe" });
@@ -36,6 +42,12 @@ for (const f of files) {
     const msg = e?.stderr?.toString?.() || e?.message || String(e);
     console.error(`[lint] node --check failed: ${f}\n${msg}`);
   }
+}
+
+try {
+  execFileSync(process.execPath, [path.join(root, "scripts/architecture-check.mjs")], { stdio: "inherit" });
+} catch {
+  ok = false;
 }
 
 if (!ok) process.exit(1);

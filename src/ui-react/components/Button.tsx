@@ -4,6 +4,27 @@ type ButtonVariant = "primary" | "ghost" | "danger" | "accent";
 type ButtonSize = "sm" | "md" | "lg";
 type ButtonWidth = "auto" | "sm" | "md" | "lg" | "full";
 
+const BUTTON_VARIANT_CLASS: Record<ButtonVariant, string> = {
+  primary: "btn--primary",
+  ghost: "btn--ghost",
+  danger: "btn--danger",
+  accent: "btn--accent",
+};
+
+const BUTTON_SIZE_CLASS: Record<ButtonSize, string> = {
+  sm: "btn--sm",
+  md: "btn--md",
+  lg: "btn--lg",
+};
+
+const BUTTON_WIDTH_CLASS: Record<ButtonWidth, string> = {
+  auto: "",
+  sm: "btn--w-sm",
+  md: "btn--w-md",
+  lg: "btn--w-lg",
+  full: "btn--w-full",
+};
+
 type ButtonProps = {
   id?: string;
   type?: "button" | "submit" | "reset";
@@ -59,25 +80,9 @@ export function Button(props: ButtonProps) {
     children,
   } = props;
 
-  const variantClass =
-    variant === "primary"
-      ? "btn--primary"
-      : variant === "danger"
-        ? "btn--danger"
-        : variant === "accent"
-          ? "btn--accent"
-          : "btn--ghost";
-  const sizeClass = size === "sm" ? "btn--sm" : size === "lg" ? "btn--lg" : "btn--md";
-  const widthClass =
-    width === "sm"
-      ? "btn--w-sm"
-      : width === "md"
-        ? "btn--w-md"
-        : width === "lg"
-          ? "btn--w-lg"
-          : width === "full"
-            ? "btn--w-full"
-            : "";
+  const variantClass = BUTTON_VARIANT_CLASS[variant];
+  const sizeClass = BUTTON_SIZE_CLASS[size];
+  const widthClass = BUTTON_WIDTH_CLASS[width];
 
   return (
     <button

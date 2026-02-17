@@ -70,6 +70,12 @@ type ParticleFx = {
   color: [number, number, number];
 };
 
+function getFixedEntities(board: Board): FixedEntity[] | null {
+  if (board.roulette?.entities?.length) return board.roulette.entities;
+  if (board.zigzag?.entities?.length) return board.zigzag.entities;
+  return null;
+}
+
 export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Board }): Renderer {
   const context = canvas.getContext("2d", { alpha: false });
   if (!(context instanceof CanvasRenderingContext2D)) throw new Error("2D context not available");
@@ -613,11 +619,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     ctx.fillStyle = "rgba(255,255,255,0.018)";
     ctx.fill();
 
-    const fixedEntities: FixedEntity[] | null = board.roulette?.entities?.length
-      ? board.roulette.entities
-      : board.zigzag?.entities?.length
-        ? board.zigzag.entities
-        : null;
+    const fixedEntities = getFixedEntities(board);
 
     // Fixed map polylines (walls / dividers).
     if (fixedEntities) {

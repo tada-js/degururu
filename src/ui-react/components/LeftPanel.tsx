@@ -12,6 +12,7 @@ type LeftPanelBall = {
 type LeftPanelProps = {
   viewLockChecked: boolean;
   viewLockDisabled: boolean;
+  viewLockTooltip: string;
   resultDisabled: boolean;
   winnerCount: number;
   winnerCountMax: number;
@@ -29,6 +30,7 @@ export function LeftPanel(props: LeftPanelProps) {
   const {
     viewLockChecked,
     viewLockDisabled,
+    viewLockTooltip,
     resultDisabled,
     winnerCount,
     winnerCountMax,
@@ -53,7 +55,7 @@ export function LeftPanel(props: LeftPanelProps) {
           <div className="mini__title" id="minimap-title">
             미니맵
           </div>
-          <label className="switch" title="켜면 후미 공을 따라갑니다. 끄면 자유 시점으로 미니맵으로 이동합니다.">
+          <label className="switch tooltip" data-tip={viewLockTooltip} aria-label={viewLockTooltip}>
             <span className="switch__label">시점 고정</span>
             <input
               id="view-lock"

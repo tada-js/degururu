@@ -212,6 +212,9 @@ export function AppShell() {
   const quickFinishVisible = ui.statusTone === "running" || ui.statusTone === "paused";
   const quickFinishLabel = ui.quickFinishPending ? "완료 중..." : "즉시 완료";
   const quickFinishDisabled = !quickFinishVisible || ui.quickFinishPending;
+  const viewLockTooltip = ui.viewLockDisabled
+    ? "게임 시작 후 시점 고정을 사용할 수 있어요."
+    : "켜면 후미 공 추적, 끄면 미니맵 이동";
   const resultRollCandidates = ui.balls
     .filter((ball) => ball.count > 0)
     .flatMap((ball) => {
@@ -258,6 +261,7 @@ export function AppShell() {
           <LeftPanel
             viewLockChecked={ui.viewLockChecked}
             viewLockDisabled={ui.viewLockDisabled}
+            viewLockTooltip={viewLockTooltip}
             resultDisabled={ui.resultDisabled}
             winnerCount={ui.winnerCount}
             winnerCountMax={ui.winnerCountMax}

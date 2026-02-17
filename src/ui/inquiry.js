@@ -59,12 +59,14 @@ export function validateInquiryInput(input) {
   if (!subject) return { ok: false, field: "subject", message: "제목을 입력해 주세요." };
   if (!message) return { ok: false, field: "message", message: "내용을 입력해 주세요." };
 
-  if ([name, email, subject, message].some((value) => hasSuspiciousMarkup(value))) {
-    const firstBadField =
-      hasSuspiciousMarkup(name) ? "name" :
-      hasSuspiciousMarkup(email) ? "email" :
-      hasSuspiciousMarkup(subject) ? "subject" :
-      "message";
+  const fieldChecks = [
+    ["name", name],
+    ["email", email],
+    ["subject", subject],
+    ["message", message],
+  ];
+  const firstBadField = fieldChecks.find((entry) => hasSuspiciousMarkup(entry[1]))?.[0];
+  if (firstBadField) {
     return { ok: false, field: firstBadField, message: "허용되지 않는 입력 형식이 포함되어 있습니다." };
   }
 
