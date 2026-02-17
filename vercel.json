@@ -3,12 +3,6 @@
   "framework": "vite",
   "buildCommand": "npm run build:vite",
   "outputDirectory": "dist-vite",
-  "functions": {
-    "api/**/*.mjs": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 10
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
