@@ -35,6 +35,7 @@ import type {
   InquiryForm,
   InquirySubmitResult,
   ResultUiItem,
+  StatusTone,
   UiSnapshot,
 } from "./ui-store";
 
@@ -92,6 +93,24 @@ type CatalogDraftItem = {
   imageDataUrl: string;
   tint: string;
 };
+
+const STATUS_LABEL_BY_TONE: Record<StatusTone, string> = {
+  ready: "준비됨",
+  running: "진행 중",
+  paused: "일시 정지",
+  done: "결과 준비 완료",
+};
+
+function deriveStatusTone(state: {
+  mode?: string;
+  winner?: unknown;
+  paused?: boolean;
+}): StatusTone {
+  if (state.mode !== "playing") return "ready";
+  if (state.winner) return "done";
+  if (state.paused) return "paused";
+  return "running";
+}
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -466,22 +485,8 @@ export function bootstrapGameApp() {
     if (clampedWinnerCount !== uiState.winnerCount) {
       uiState.winnerCount = clampedWinnerCount;
     }
-    const statusTone =
-      state.mode !== "playing"
-        ? "ready"
-        : state.winner
-          ? "done"
-          : state.paused
-            ? "paused"
-            : "running";
-    const statusLabel =
-      statusTone === "running"
-        ? "진행 중"
-        : statusTone === "paused"
-          ? "일시 정지"
-          : statusTone === "done"
-            ? "결과 준비 완료"
-            : "준비됨";
+    const statusTone = deriveStatusTone(state);
+    const statusLabel = STATUS_LABEL_BY_TONE[statusTone];
 
     const nextSnapshot: UiSnapshot = {
       startDisabled: total <= 0,

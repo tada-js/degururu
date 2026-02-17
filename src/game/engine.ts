@@ -448,14 +448,27 @@ export function prepareDropQueue(state: GameState, { shuffle = true }: { shuffle
   return queue;
 }
 
+function getLayoutSpawnBoundsAtY(board: Board): ((y: number) => SpawnBounds) | null {
+  if (board.layout === "roulette") return board.roulette?.spawnBoundsAtY ?? null;
+  if (board.layout === "zigzag") return board.zigzag?.spawnBoundsAtY ?? null;
+  return null;
+}
+
+function getLayoutSpawnY(board: Board): number | null {
+  if (board.layout === "roulette") return board.roulette?.spawnY ?? null;
+  if (board.layout === "zigzag") return board.zigzag?.spawnY ?? null;
+  return null;
+}
+
+function getLayoutTopY(board: Board): number | null {
+  if (board.layout === "roulette") return board.roulette?.topY ?? null;
+  if (board.layout === "zigzag") return board.zigzag?.topY ?? null;
+  return null;
+}
+
 export function setDropX(state: GameState, x: number): void {
   const pad = state.board.ballR + 2;
-  const spawnBoundsAtY =
-    state.board.layout === "roulette"
-      ? state.board.roulette?.spawnBoundsAtY
-      : state.board.layout === "zigzag"
-        ? state.board.zigzag?.spawnBoundsAtY
-        : null;
+  const spawnBoundsAtY = getLayoutSpawnBoundsAtY(state.board);
   if (spawnBoundsAtY) {
     const { left, right } = spawnBoundsAtY(80);
     state.dropX = clamp(x, left + pad, right - pad);
@@ -852,20 +865,10 @@ function layoutPending(state: GameState): void {
   const n = state.pending.length;
   if (!n) return;
   const gap = ballR * 2.2;
-  const spawnY =
-    state.board.layout === "roulette"
-      ? state.board.roulette?.spawnY
-      : state.board.layout === "zigzag"
-        ? state.board.zigzag?.spawnY
-        : null;
+  const spawnY = getLayoutSpawnY(state.board);
   const baseY = typeof spawnY === "number" ? spawnY : 70;
   const spawnBounds = (y: number): SpawnBounds => {
-    const spawnBoundsAtY =
-      state.board.layout === "roulette"
-        ? state.board.roulette?.spawnBoundsAtY
-        : state.board.layout === "zigzag"
-          ? state.board.zigzag?.spawnBoundsAtY
-          : null;
+    const spawnBoundsAtY = getLayoutSpawnBoundsAtY(state.board);
     if (spawnBoundsAtY) {
       const b = spawnBoundsAtY(y);
       const left = Number(b?.left);
@@ -922,12 +925,7 @@ function applyReleaseMixKick(state: GameState): void {
 function settleMarbles(state: GameState, iterations: number): void {
   const { worldW, wallSegments, wallBins, corridor } = state.board;
   const restitution = 0.25;
-  const topY =
-    state.board.layout === "roulette"
-      ? state.board.roulette?.topY
-      : state.board.layout === "zigzag"
-        ? state.board.zigzag?.topY
-        : null;
+  const topY = getLayoutTopY(state.board);
   for (let it = 0; it < iterations; it++) {
     // Walls first.
     for (const m of state.marbles) {
@@ -1016,6 +1014,16 @@ function corridorAt(corridor: Corridor, y: number): SpawnBounds {
 function smoothstep(x: number): number {
   const t = clamp(x, 0, 1);
   return t * t * (3 - 2 * t);
+}
+
+function resolveRotorAxisValue(
+  absolute: unknown,
+  fraction: unknown,
+  maxValue: number
+): number | null {
+  if (typeof absolute === "number" && Number.isFinite(absolute)) return absolute;
+  if (typeof fraction === "number" && Number.isFinite(fraction)) return fraction * maxValue;
+  return null;
 }
 
 function makeZigzagLayout({
@@ -1282,18 +1290,8 @@ function makeZigzagLayout({
   if (Array.isArray(customRotors) && customRotors.length) {
     for (const cr of customRotors) {
       if (!cr) continue;
-      const x =
-        typeof cr.x === "number"
-          ? cr.x
-          : typeof cr.xFrac === "number"
-            ? cr.xFrac * worldW
-            : null;
-      const y =
-        typeof cr.y === "number"
-          ? cr.y
-          : typeof cr.yFrac === "number"
-            ? cr.yFrac * worldH
-            : null;
+      const x = resolveRotorAxisValue(cr.x, cr.xFrac, worldW);
+      const y = resolveRotorAxisValue(cr.y, cr.yFrac, worldH);
       if (typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) continue;
       const r = typeof cr.r === "number" && Number.isFinite(cr.r) ? cr.r : clamp(ballR * 0.78, ballR * 0.55, ballR * 0.95);
       rotors.push({

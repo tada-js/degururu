@@ -3,6 +3,13 @@ import { IconButton } from "./Button";
 
 type ModalCardSize = "sm" | "md" | "lg" | "xl";
 
+const MODAL_CARD_SIZE_CLASS: Record<ModalCardSize, string> = {
+  sm: "twModal__card--sm",
+  md: "twModal__card--md",
+  lg: "twModal__card--lg",
+  xl: "twModal__card--xl",
+};
+
 type ModalCardProps = {
   title: ReactNode;
   description?: string;
@@ -29,14 +36,7 @@ export function ModalCard(props: ModalCardProps) {
     size = "lg",
   } = props;
 
-  const sizeClass =
-    size === "sm"
-      ? "twModal__card--sm"
-      : size === "md"
-        ? "twModal__card--md"
-        : size === "xl"
-          ? "twModal__card--xl"
-          : "twModal__card--lg";
+  const sizeClass = MODAL_CARD_SIZE_CLASS[size];
 
   return (
     <div className={`twModal__card ${sizeClass} ${className}`.trim()}>

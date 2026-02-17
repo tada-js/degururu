@@ -11,6 +11,7 @@
     "build-storybook": "storybook build",
     "test": "tsx --test",
     "lint": "node scripts/lint.mjs",
+    "arch:check": "node scripts/architecture-check.mjs",
     "typecheck": "tsc --noEmit",
     "security": "node scripts/security-scan.mjs"
   },
