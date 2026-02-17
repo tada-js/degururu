@@ -867,6 +867,60 @@ canvas#game {
 .resultOption--inline {
   margin-top: 10px;
 }
+.startCaption {
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.03);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.startCaption.is-disabled {
+  opacity: 0.72;
+}
+.startCaption__labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.startCaption__label {
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.88);
+}
+.startCaption__count {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(228,239,255,0.74);
+}
+.startCaption__input {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.22);
+  color: rgba(255,255,255,0.94);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 10px;
+}
+.startCaption__input::placeholder {
+  color: rgba(208,219,235,0.5);
+}
+.startCaption__input:focus {
+  outline: none;
+  border-color: rgba(69,243,195,0.5);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.startCaption__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+.startCaption__hint {
+  font-size: 11px;
+  color: rgba(229,236,247,0.72);
+}
 .mini {
   border: 1px solid var(--stroke);
   background: rgba(255, 255, 255, 0.04);
@@ -1253,8 +1307,8 @@ canvas#game {
   height: 56px;
   border-radius: 999px;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.22);
-  background: rgba(0,0,0,0.18);
+  border: none;
+  background: transparent;
 }
 .settings-row__thumb img { width: 100%; height: 100%; object-fit: cover; }
 .field {
@@ -2041,8 +2095,13 @@ dialog.dialog--settings::backdrop {
 }
 
 .resultModal__body {
+  position: relative;
   display: grid;
   gap: 14px;
+  overflow: hidden;
+}
+.resultModal__burst {
+  z-index: 3;
 }
 .resultModal__actions {
   width: 100%;
@@ -2092,8 +2151,8 @@ dialog.dialog--settings::backdrop {
   width: 44px;
   height: 44px;
   border-radius: 11px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(0,0,0,0.2);
+  border: none;
+  background: transparent;
   overflow: hidden;
 }
 .resultSpinView__thumb img {
@@ -2159,8 +2218,8 @@ dialog.dialog--settings::backdrop {
   width: 120px;
   height: 120px;
   border-radius: 24px;
-  border: 1px solid rgba(255,255,255,0.24);
-  background: rgba(0,0,0,0.2);
+  border: none;
+  background: transparent;
   overflow: hidden;
 }
 .resultSingleCard__thumb img {

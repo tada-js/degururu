@@ -1,6 +1,124 @@
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
+const GLOBAL_RATE_LIMIT_MAX = 80;
+const RATE_LIMIT_SWEEP_INTERVAL_MS = 60 * 1000;
+const RATE_LIMIT_MAX_KEYS = 4096;
 const XSS_RE = /<[^>]*>|javascript:|on\w+\s*=|data:text\/html/i;
+const API_CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const SEC_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+});
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+/**
+ * @param {unknown} value
+ */
+function normalizeOrigin(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    const origin = String(parsed.origin || "").toLowerCase();
+    return origin === "null" ? "" : origin;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeHost(value) {
+  return String(value || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * @param {import("node:http").IncomingMessage} req
+ */
+function resolveRequestOrigin(req) {
+  const origin = normalizeOrigin(req.headers.origin);
+  if (origin) return origin;
+  const referer = normalizeOrigin(req.headers.referer || req.headers.referrer);
+  if (referer) return referer;
+  return "";
+}
+
+/**
+ * @param {import("node:http").IncomingMessage} req
+ */
+function resolveRequestHostOrigin(req) {
+  const forwardedHost = normalizeHost(req.headers["x-forwarded-host"]);
+  const host = forwardedHost || normalizeHost(req.headers.host);
+  if (!host) return "";
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const proto = forwardedProto === "https" ? "https" : "http";
+  return normalizeOrigin(`${proto}://${host}`);
+}
+
+/**
+ * @param {string} origin
+ */
+function extractOriginHostname(origin) {
+  try {
+    return String(new URL(origin).hostname || "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * @param {string} requestOrigin
+ * @param {string} hostOrigin
+ */
+function isLoopbackOriginPair(requestOrigin, hostOrigin) {
+  const requestHost = extractOriginHostname(requestOrigin);
+  const hostHost = extractOriginHostname(hostOrigin);
+  return LOOPBACK_HOSTS.has(requestHost) && LOOPBACK_HOSTS.has(hostHost);
+}
+
+/**
+ * @param {unknown} value
+ */
+function parseAllowedOrigins(value) {
+  if (!value) return new Set();
+  const raw = Array.isArray(value) ? value : String(value).split(",");
+  const normalized = raw.map((entry) => normalizeOrigin(entry)).filter(Boolean);
+  return new Set(normalized);
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {number} min
+ * @param {number} max
+ */
+function toBoundedNumber(value, fallback, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return Math.floor(n);
+}
+
+/**
+ * @param {string} value
+ */
+function hashToken(value) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16);
+}
 
 /**
  * Create an inquiry API handler closure.
@@ -10,6 +128,10 @@ const XSS_RE = /<[^>]*>|javascript:|on\w+\s*=|data:text\/html/i;
  *   fromEmail: string;
  *   resendApiKey: string;
  *   fetchImpl?: typeof fetch;
+ *   allowedOrigins?: string[] | string;
+ *   rateLimitWindowMs?: number;
+ *   rateLimitMax?: number;
+ *   rateLimitGlobalMax?: number;
  * }} config
  */
 export function createInquiryApiHandler(config) {
@@ -17,7 +139,12 @@ export function createInquiryApiHandler(config) {
   const fromEmail = String(config?.fromEmail || "onboarding@resend.dev").trim();
   const resendApiKey = String(config?.resendApiKey || "").trim();
   const fetchImpl = config?.fetchImpl || fetch;
+  const allowedOrigins = parseAllowedOrigins(config?.allowedOrigins);
+  const rateLimitWindowMs = toBoundedNumber(config?.rateLimitWindowMs, RATE_LIMIT_WINDOW_MS, 5 * 1000, 60 * 60 * 1000);
+  const rateLimitMax = toBoundedNumber(config?.rateLimitMax, RATE_LIMIT_MAX, 1, 200);
+  const rateLimitGlobalMax = toBoundedNumber(config?.rateLimitGlobalMax, GLOBAL_RATE_LIMIT_MAX, rateLimitMax, 2000);
   const inquiryRate = new Map();
+  let lastSweepAt = 0;
 
   /**
    * @param {import("node:http").ServerResponse} res
@@ -28,6 +155,8 @@ export function createInquiryApiHandler(config) {
     res.writeHead(status, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
+      "Content-Security-Policy": API_CSP,
+      ...SEC_HEADERS,
     });
     res.end(JSON.stringify(payload));
   }
@@ -44,16 +173,54 @@ export function createInquiryApiHandler(config) {
   /**
    * @param {string} ip
    */
-  function isRateLimited(ip) {
+  function isRateLimited(ip, ua) {
     const now = Date.now();
-    const slot = inquiryRate.get(ip);
-    if (!slot || now > slot.resetAt) {
-      inquiryRate.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    if (now - lastSweepAt >= RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweepAt = now;
+      for (const [key, slot] of inquiryRate.entries()) {
+        if (!slot || now > slot.resetAt) inquiryRate.delete(key);
+      }
+      if (inquiryRate.size > RATE_LIMIT_MAX_KEYS) {
+        const overflow = inquiryRate.size - RATE_LIMIT_MAX_KEYS;
+        const victims = Array.from(inquiryRate.entries())
+          .sort((a, b) => (a[1]?.resetAt || 0) - (b[1]?.resetAt || 0))
+          .slice(0, overflow);
+        for (const [key] of victims) inquiryRate.delete(key);
+      }
+    }
+
+    const clientKey = `${ip}|${hashToken(String(ua || "").slice(0, 160))}`;
+    const globalKey = "__global__";
+
+    const globalSlot = inquiryRate.get(globalKey);
+    if (!globalSlot || now > globalSlot.resetAt) {
+      inquiryRate.set(globalKey, { count: 1, resetAt: now + rateLimitWindowMs });
+    } else {
+      globalSlot.count += 1;
+      if (globalSlot.count > rateLimitGlobalMax) return true;
+    }
+
+    const clientSlot = inquiryRate.get(clientKey);
+    if (!clientSlot || now > clientSlot.resetAt) {
+      inquiryRate.set(clientKey, { count: 1, resetAt: now + rateLimitWindowMs });
       return false;
     }
-    slot.count += 1;
-    if (slot.count > RATE_LIMIT_MAX) return true;
+    clientSlot.count += 1;
+    if (clientSlot.count > rateLimitMax) return true;
     return false;
+  }
+
+  /**
+   * @param {import("node:http").IncomingMessage} req
+   */
+  function isOriginAllowed(req) {
+    const requestOrigin = resolveRequestOrigin(req);
+    if (!requestOrigin) return true;
+    if (allowedOrigins.has(requestOrigin)) return true;
+    const hostOrigin = resolveRequestHostOrigin(req);
+    if (!hostOrigin) return false;
+    if (requestOrigin === hostOrigin) return true;
+    return isLoopbackOriginPair(requestOrigin, hostOrigin);
   }
 
   /**
@@ -203,8 +370,14 @@ export function createInquiryApiHandler(config) {
       return;
     }
 
+    if (!isOriginAllowed(req)) {
+      sendJson(res, 403, { ok: false, message: "허용되지 않은 출처에서 요청했습니다." });
+      return;
+    }
+
     const clientIp = getClientIp(req);
-    if (isRateLimited(clientIp)) {
+    const ua = cleanText(String(req.headers["user-agent"] || ""), 200);
+    if (isRateLimited(clientIp, ua)) {
       sendJson(res, 429, { ok: false, message: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." });
       return;
     }
@@ -217,7 +390,6 @@ export function createInquiryApiHandler(config) {
         return;
       }
 
-      const ua = cleanText(String(req.headers["user-agent"] || ""), 200);
       await sendInquiryMail({ ...validated.data, ip: clientIp, ua });
       sendJson(res, 200, { ok: true, message: "문의가 정상적으로 전송되었습니다." });
     } catch (err) {

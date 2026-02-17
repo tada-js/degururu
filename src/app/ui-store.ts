@@ -61,6 +61,7 @@ export type UiSnapshot = {
   winnerCount: number;
   winnerCountMax: number;
   winnerCountWasClamped: boolean;
+  startCaption: string;
   resultState: ResultUiState;
   settingsOpen: boolean;
   settingsDirty: boolean;
@@ -82,6 +83,7 @@ export type UiActions = {
   stopRunNow: () => boolean;
   togglePause: () => void;
   setWinnerCount: (nextValue: number) => void;
+  setStartCaption: (value: string) => void;
   openSettings: () => void;
   closeSettings: () => void;
   applySettings: () => boolean;
@@ -127,6 +129,7 @@ const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
   winnerCount: 1,
   winnerCountMax: 1,
   winnerCountWasClamped: false,
+  startCaption: "",
   resultState: Object.freeze({
     open: false,
     phase: "idle",
@@ -165,6 +168,7 @@ let actions: UiActions = {
   stopRunNow: NOOP_FALSE,
   togglePause: NOOP_VOID,
   setWinnerCount: NOOP_VOID,
+  setStartCaption: NOOP_VOID,
   openSettings: NOOP_VOID,
   closeSettings: NOOP_VOID,
   applySettings: NOOP_FALSE,
@@ -216,6 +220,7 @@ function isEqualSnapshot(a: UiSnapshot, b: UiSnapshot) {
     a.winnerCount !== b.winnerCount ||
     a.winnerCountMax !== b.winnerCountMax ||
     a.winnerCountWasClamped !== b.winnerCountWasClamped ||
+    a.startCaption !== b.startCaption ||
     a.settingsOpen !== b.settingsOpen ||
     a.settingsDirty !== b.settingsDirty ||
     a.settingsConfirmOpen !== b.settingsConfirmOpen ||

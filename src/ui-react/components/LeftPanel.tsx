@@ -1,6 +1,8 @@
 import { Button } from "./Button";
 import { AppIcon } from "./Icons";
 
+const START_CAPTION_MAX = 28;
+
 type LeftPanelBall = {
   id: string;
   name: string;
@@ -17,11 +19,13 @@ type LeftPanelProps = {
   winnerCount: number;
   winnerCountMax: number;
   winnerCountWasClamped: boolean;
+  startCaption: string;
   balls: LeftPanelBall[];
   onOpenSettings: () => void;
   onOpenResult: () => void;
   onToggleViewLock: (isOn: boolean) => void;
   onSetWinnerCount: (value: number) => void;
+  onSetStartCaption: (value: string) => void;
   onAdjustBallCount: (ballId: string, delta: number) => void;
   onSetBallCount: (ballId: string, value: number) => void;
 };
@@ -35,11 +39,13 @@ export function LeftPanel(props: LeftPanelProps) {
     winnerCount,
     winnerCountMax,
     winnerCountWasClamped,
+    startCaption,
     balls,
     onOpenSettings,
     onOpenResult,
     onToggleViewLock,
     onSetWinnerCount,
+    onSetStartCaption,
     onAdjustBallCount,
     onSetBallCount,
   } = props;
@@ -47,6 +53,7 @@ export function LeftPanel(props: LeftPanelProps) {
   const canDecreaseResultCount = winnerCount > 1;
   const canIncreaseResultCount = winnerCount < winnerCountMax;
   const totalParticipants = balls.reduce((sum, ball) => sum + Math.max(0, Math.floor(Number(ball.count) || 0)), 0);
+  const startCaptionLength = String(startCaption || "").length;
 
   return (
     <div className="hud">
@@ -191,11 +198,32 @@ export function LeftPanel(props: LeftPanelProps) {
             </Button>
           </div>
         </div>
-        <div className="resultOption__meta">최대 {winnerCountMax}개</div>
         <div className="resultOption__helper">가장 늦게 도착한 순서대로 결과를 공개합니다.</div>
         {winnerCountWasClamped ? (
-          <div className="resultOption__hint">입력값이 최대치를 넘어 자동으로 맞춰졌습니다.</div>
+          <div className="resultOption__hint">참가자 수를 넘어 자동으로 참가자 수로 맞춰졌습니다.</div>
         ) : null}
+      </div>
+
+      <div className={`startCaption ${isLocked ? "is-disabled" : ""}`}>
+        <div className="startCaption__labelRow">
+          <label className="startCaption__label" htmlFor="start-caption-input">
+            시작지점 문구
+          </label>
+          <span className="startCaption__count">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
+        </div>
+        <input
+          id="start-caption-input"
+          className="startCaption__input"
+          type="text"
+          maxLength={START_CAPTION_MAX}
+          placeholder="예) 두근두근 당첨자는 누구일까요?"
+          value={startCaption}
+          disabled={isLocked}
+          onChange={(event) => onSetStartCaption(event.currentTarget.value)}
+        />
+        <div className="startCaption__hint">
+          {isLocked ? "진행 중에는 변경할 수 없어요." : "띄어쓰기 포함 최대 28자, 시작지점 상단에 표시됩니다."}
+        </div>
       </div>
     </div>
   );
