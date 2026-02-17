@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { bootstrapGameApp } from "./app/create-game-app";
-import { AppShell } from "./ui-react/app-shell";
+import { AppShell } from "./ui-react/AppShell";
 
 declare global {
   interface Window {

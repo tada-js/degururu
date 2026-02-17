@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { IconButton } from "./button";
+import { IconButton } from "./Button";
 
 type ModalCardSize = "sm" | "md" | "lg" | "xl";
 

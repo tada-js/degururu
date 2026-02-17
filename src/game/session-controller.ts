@@ -118,9 +118,14 @@ export function createSessionController<State extends SessionState, WinnerPayloa
     tryStart();
   }
 
+  function prepareRestartForCountdown(): void {
+    restartIfPlaying();
+  }
+
   return {
     tryStart,
     handleStartClick,
+    prepareRestartForCountdown,
     togglePause,
     onAfterFrame,
   };

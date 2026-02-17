@@ -14,12 +14,12 @@ import {
   type RequiredInquiryField,
   type UiActions,
 } from "../app/ui-store";
-import { Button } from "./components/button";
-import { GameCanvasStage } from "./components/game-canvas-stage";
-import { LeftPanel } from "./components/left-panel";
-import { ModalCard } from "./components/modal";
-import { ResultModal } from "./components/modals/result-modal";
-import { TopBar } from "./components/top-bar";
+import { Button, IconButton } from "./components/Button";
+import { GameCanvasStage } from "./components/GameCanvasStage";
+import { LeftPanel } from "./components/LeftPanel";
+import { ModalCard } from "./components/Modal";
+import { ResultModal } from "./components/modals/ResultModal";
+import { TopBar } from "./components/TopBar";
 
 const CATALOG_MAX = 15;
 
@@ -117,6 +117,9 @@ export function AppShell() {
   }
 
   function handleTopBarStart() {
+    if (ui.statusTone === "running" || ui.statusTone === "paused") {
+      runAction("prepareRestartForCountdown");
+    }
     startGameCountdown();
   }
 
@@ -198,6 +201,27 @@ export function AppShell() {
   const canRemoveCatalogBall = ui.balls.length > 1 && !catalogLocked;
   const canApplySettings = !!ui.settingsDirty && !catalogLocked;
   const settingsCloseLabel = ui.settingsDirty ? "취소" : "닫기";
+  const totalParticipants = ui.balls.reduce((sum, ball) => sum + Math.max(0, Math.floor(Number(ball.count) || 0)), 0);
+  const statusMetaText =
+    ui.statusTone === "ready"
+      ? `${totalParticipants}/${totalParticipants}`
+      : ui.statusTone === "running" && ui.statusRemainingCount != null
+        ? `${Math.max(0, ui.statusRemainingCount)}/${totalParticipants}`
+        : null;
+  const quickFinishVisible = ui.statusTone === "running" || ui.statusTone === "paused";
+  const quickFinishLabel = ui.quickFinishPending ? "완료 중..." : "즉시 완료";
+  const quickFinishDisabled = !quickFinishVisible || ui.quickFinishPending;
+  const resultRollCandidates = ui.balls
+    .filter((ball) => ball.count > 0)
+    .flatMap((ball) => {
+      const repeat = Math.min(Math.max(1, ball.count), 6);
+      return Array.from({ length: repeat }, () => ({
+        ballId: ball.id,
+        name: ball.name,
+        img: ball.imageDataUrl,
+      }));
+    })
+    .slice(0, 48);
   const isDev = import.meta.env.DEV;
 
   return (
@@ -208,11 +232,18 @@ export function AppShell() {
           startLabel={countdownValue != null ? "준비 중..." : ui.startLabel}
           statusLabel={ui.statusLabel}
           statusTone={ui.statusTone}
+          statusMetaText={statusMetaText}
+          quickFinishVisible={quickFinishVisible}
+          quickFinishDisabled={quickFinishDisabled}
+          quickFinishLabel={quickFinishLabel}
+          speedMultiplier={ui.speedMultiplier}
           bgmOn={ui.bgmOn}
           bgmTrack={ui.bgmTrack}
           bgmMenuOpen={bgmMenuOpen}
           bgmControlRef={bgmControlRef}
           onStart={handleTopBarStart}
+          onQuickFinish={() => runAction("completeRunNow")}
+          onToggleSpeed={() => runAction("toggleSpeedMode")}
           onToggleBgm={() => runAction("toggleBgm")}
           onToggleBgmMenu={() => setBgmMenuOpen((prev) => !prev)}
           onSelectBgmTrack={(track) => {
@@ -266,11 +297,11 @@ export function AppShell() {
             size="lg"
             title={
               <span className="settingsTitle">
-                공 설정
+                참가자 설정
                 {ui.settingsDirty ? <span className="settingsTitle__badge">변경됨</span> : null}
               </span>
             }
-            description="공을 추가/삭제하고, 이름과 이미지를 바꿀 수 있어요."
+            description="참가자를 추가/삭제하고, 이름과 이미지를 바꿀 수 있어요."
             onClose={() => runAction("closeSettings")}
             footer={
               <div className="settingsFooter">
@@ -316,63 +347,61 @@ export function AppShell() {
                 const fileInputId = `ball-file-${ball.id}`;
                 return (
                   <div className="twItem" key={ball.id}>
-                    <div className="twItem__head">
-                      <div className="twItem__thumb">
-                        <img alt={ball.name} src={ball.imageDataUrl} />
-                      </div>
-                      <div className="twItem__headMeta">
-                        <div className="twItem__headLabel">공 ID</div>
-                        <div className="twItem__idBadge">{ball.id}</div>
-                      </div>
-                    </div>
-                    <div className="twItem__grid">
-                      <div className="field twItem__field">
-                        <label htmlFor={`ball-name-${ball.id}`}>이름</label>
-                        <input
-                          id={`ball-name-${ball.id}`}
-                          type="text"
-                          value={ball.name}
-                          maxLength={40}
-                          disabled={catalogLocked}
-                          onChange={(event) => runAction("setCatalogBallName", ball.id, event.currentTarget.value)}
-                        />
-                      </div>
-                      <div className="field twItem__field">
-                        <label htmlFor={fileInputId}>이미지</label>
-                        <div className="fileRow">
-                          <label className="btn btn--ghost btn--md fileRow__btn" htmlFor={fileInputId}>
-                            파일 선택
-                          </label>
-                          <div className="fileRow__name">{fileNames[ball.id] || "선택 안 함"}</div>
+                    <div className="twItem__topRow">
+                      <div className="twItem__primaryRow">
+                        <div className="twItem__thumb">
+                          <img alt={ball.name} src={ball.imageDataUrl} />
+                        </div>
+                        <div className="field twItem__nameField">
+                          <label htmlFor={`ball-name-${ball.id}`}>이름</label>
                           <input
-                            id={fileInputId}
-                            className="fileRow__input"
-                            type="file"
-                            accept="image/*"
+                            id={`ball-name-${ball.id}`}
+                            type="text"
+                            value={ball.name}
+                            maxLength={40}
                             disabled={catalogLocked}
-                            onChange={async (event) => {
-                              const file = event.currentTarget.files?.[0];
-                              setFileNames((prev) => ({
-                                ...prev,
-                                [ball.id]: file?.name ? file.name.slice(0, 32) : "선택 안 함",
-                              }));
-                              if (!file) return;
-                              await runAction("setCatalogBallImage", ball.id, file);
-                              event.currentTarget.value = "";
-                            }}
+                            onChange={(event) => runAction("setCatalogBallName", ball.id, event.currentTarget.value)}
                           />
                         </div>
                       </div>
-                    </div>
-                    <div className="twItem__actions">
-                      <Button
-                        variant="danger"
-                        className="twItem__remove"
+                      <IconButton
+                        className="twItem__removeIcon"
+                        ariaLabel={`${ball.name} 삭제`}
+                        title="삭제"
                         disabled={!canRemoveCatalogBall}
                         onClick={() => runAction("removeCatalogBall", ball.id)}
                       >
-                        삭제
-                      </Button>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7 7L17 17" />
+                          <path d="M17 7L7 17" />
+                        </svg>
+                      </IconButton>
+                    </div>
+                    <div className="twItem__secondaryId">ID: {ball.id}</div>
+                    <div className="field twItem__field">
+                      <label htmlFor={fileInputId}>이미지</label>
+                      <label className={`twUploadZone ${catalogLocked ? "is-disabled" : ""}`} htmlFor={fileInputId}>
+                        <span className="twUploadZone__title">이미지 업로드</span>
+                        <span className="twUploadZone__hint">클릭해서 파일을 선택하세요</span>
+                        <span className="twUploadZone__name">{fileNames[ball.id] || "선택 안 함"}</span>
+                      </label>
+                      <input
+                        id={fileInputId}
+                        className="fileRow__input"
+                        type="file"
+                        accept="image/*"
+                        disabled={catalogLocked}
+                        onChange={async (event) => {
+                          const file = event.currentTarget.files?.[0];
+                          setFileNames((prev) => ({
+                            ...prev,
+                            [ball.id]: file?.name ? file.name.slice(0, 32) : "선택 안 함",
+                          }));
+                          if (!file) return;
+                          await runAction("setCatalogBallImage", ball.id, file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
                     </div>
                   </div>
                 );
@@ -536,8 +565,10 @@ export function AppShell() {
         <form className="twModal" id="result-form" onSubmit={(event) => event.preventDefault()}>
           <ResultModal
             state={ui.resultState}
+            rollCandidates={resultRollCandidates}
             onClose={() => runAction("closeResultModal")}
             onSkip={() => runAction("skipResultReveal")}
+            onSpinDone={() => runAction("completeResultSpin")}
             onCopy={() => runAction("copyResults")}
             onRestart={handleResultRestart}
           />

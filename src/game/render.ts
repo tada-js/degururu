@@ -102,18 +102,31 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   };
   const trailsByMarble = new Map<string, TrailPoint[]>();
   const motionByMarble = new Map<string, MotionCache>();
+  const catalogById = new Map<string, BallCatalogItem>();
+  const labelWidthByKey = new Map<string, number>();
   const impactRings: RingFx[] = [];
   const impactParticles: ParticleFx[] = [];
   const slotRipples: RingFx[] = [];
   let seenFinishedCount = 0;
+  let lastCatalogRef: BallCatalogItem[] | null = null;
 
   function clearRenderFxState() {
     trailsByMarble.clear();
     motionByMarble.clear();
+    labelWidthByKey.clear();
     impactRings.length = 0;
     impactParticles.length = 0;
     slotRipples.length = 0;
     seenFinishedCount = 0;
+  }
+
+  function ensureCatalogLookup(ballsCatalog: BallCatalogItem[]): void {
+    if (lastCatalogRef === ballsCatalog) return;
+    lastCatalogRef = ballsCatalog;
+    catalogById.clear();
+    for (const entry of ballsCatalog) {
+      catalogById.set(entry.id, entry);
+    }
   }
 
   function resizeToFit(): void {
@@ -305,10 +318,18 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
 
   function trackMarbleTrailsAndImpacts(state: GameState, nowMs: number): void {
     const liveIds = new Set<string>();
-    const activeMarbles = state.marbles.filter((m) => !m.done);
-    const trailMaxPoints = activeMarbles.length > 60 ? 4 : 6;
+    let activeCount = 0;
+    for (const m of state.marbles) {
+      if (!m.done) activeCount += 1;
+    }
+    const heavyLoad = activeCount > 56;
+    const trailMaxPoints = activeCount > 60 ? 4 : 6;
+    const impactCooldownMs = heavyLoad ? 140 : 95;
+    const impactDotThreshold = heavyLoad ? 0.34 : 0.52;
+    const impactDeltaVThreshold = heavyLoad ? 320 : 220;
 
-    for (const m of activeMarbles) {
+    for (const m of state.marbles) {
+      if (m.done) continue;
       liveIds.add(m.id);
       const prev = motionByMarble.get(m.id);
       if (prev) {
@@ -317,8 +338,8 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
         if (prevSpeed > 95 && speed > 95) {
           const dotNorm = (prev.vx * m.vx + prev.vy * m.vy) / Math.max(1e-6, prevSpeed * speed);
           const deltaV = Math.hypot(m.vx - prev.vx, m.vy - prev.vy);
-          if ((dotNorm < 0.52 || deltaV > 220) && nowMs - prev.lastImpactMs > 95) {
-            spawnImpactFx(m.x, m.y, nowMs);
+          if ((dotNorm < impactDotThreshold || deltaV > impactDeltaVThreshold) && nowMs - prev.lastImpactMs > impactCooldownMs) {
+            spawnImpactFx(m.x, m.y, nowMs, heavyLoad ? 0.55 : 1);
             prev.lastImpactMs = nowMs;
           }
         }
@@ -354,10 +375,16 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   function trackSlotRipples(state: GameState, nowMs: number): void {
     if (state.finished.length < seenFinishedCount) seenFinishedCount = 0;
     if (!state.finished.length) return;
+    if (state.finished.length <= seenFinishedCount) return;
+
+    const marbleById = new Map<string, { x: number; y: number }>();
+    for (const marble of state.marbles) {
+      marbleById.set(marble.id, marble);
+    }
 
     for (let i = seenFinishedCount; i < state.finished.length; i++) {
       const entry = state.finished[i];
-      const marble = state.marbles.find((x) => x.id === entry.marbleId);
+      const marble = marbleById.get(entry.marbleId);
       const slot = state.board.slots[entry.slot];
       const x = marble?.x ?? (slot ? (slot.x0 + slot.x1) * 0.5 : state.board.worldW * 0.5);
       const y = marble?.y ?? state.board.worldH - state.board.slotH * 0.42;
@@ -375,7 +402,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     seenFinishedCount = state.finished.length;
   }
 
-  function spawnImpactFx(x: number, y: number, nowMs: number): void {
+  function spawnImpactFx(x: number, y: number, nowMs: number, intensity = 1): void {
     const neonPalette: Array<[number, number, number]> = [
       [0, 255, 255],   // cyan
       [255, 0, 170],   // magenta
@@ -394,18 +421,21 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       radiusTo: 42,
       color: ringColor,
     });
-    impactRings.push({
-      x,
-      y,
-      startMs: nowMs,
-      durationMs: 160,
-      radiusFrom: 3,
-      radiusTo: 20,
-      color: particleColor,
-    });
+    if (intensity >= 0.72) {
+      impactRings.push({
+        x,
+        y,
+        startMs: nowMs,
+        durationMs: 160,
+        radiusFrom: 3,
+        radiusTo: 20,
+        color: particleColor,
+      });
+    }
     if (impactRings.length > 90) impactRings.splice(0, impactRings.length - 90);
 
-    for (let i = 0; i < 6; i++) {
+    const particleCount = intensity >= 0.72 ? 6 : 3;
+    for (let i = 0; i < particleCount; i++) {
       const angle = ((i + 1) * Math.PI * 0.5) + ((x * 0.013 + y * 0.021 + nowMs * 0.0027) % (Math.PI * 2));
       const speed = 92 + i * 28;
       impactParticles.push({
@@ -418,7 +448,8 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
         color: particleColor,
       });
     }
-    if (impactParticles.length > 220) impactParticles.splice(0, impactParticles.length - 220);
+    const particleCap = intensity >= 0.72 ? 220 : 140;
+    if (impactParticles.length > particleCap) impactParticles.splice(0, impactParticles.length - particleCap);
   }
 
   function drawTrailFx(nowMs: number): void {
@@ -513,6 +544,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   }
 
   function draw(state: GameState, ballsCatalog: BallCatalogItem[], imagesById: Map<string, HTMLImageElement>): void {
+    ensureCatalogLookup(ballsCatalog);
     drawBoardBase(state.t || 0);
     const nowMs = performance.now();
     if (state.mode !== "playing" && !state.marbles.length && !state.finished.length) {
@@ -817,10 +849,16 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     drawRingFx(slotRipples, nowMs, 2.2, 0.38);
 
     // Marbles (pending + active).
+    let activeCount = 0;
+    for (const marble of state.marbles) {
+      if (!marble.done) activeCount += 1;
+    }
+    const drawNameLabels = activeCount <= 40;
+
     for (const m of [...state.pending, ...state.marbles]) {
       // Hide finished marbles to avoid clutter when 100+ arrive.
       if (m.done) continue;
-      const meta = ballsCatalog.find((b) => b.id === m.ballId);
+      const meta = catalogById.get(m.ballId);
       const img = imagesById.get(m.ballId);
       const r = m.r;
 
@@ -864,7 +902,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       ctx.fill();
 
       // Name label above the ball (during play).
-      if (state.mode === "playing" && meta?.name) {
+      if (drawNameLabels && state.mode === "playing" && meta?.name) {
         const txt = String(meta.name);
         const fontSize = clamp(r * 0.72, 11, 16);
         ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
@@ -873,7 +911,13 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
 
         const padX = 10;
         const padY = 6;
-        const tw = ctx.measureText(txt).width;
+        const measureKey = `${fontSize}|${txt}`;
+        let tw = labelWidthByKey.get(measureKey);
+        if (typeof tw !== "number") {
+          tw = ctx.measureText(txt).width;
+          if (labelWidthByKey.size > 640) labelWidthByKey.clear();
+          labelWidthByKey.set(measureKey, tw);
+        }
         const w = Math.max(44, tw + padX * 2);
         const h = fontSize + padY * 2;
         const y = -r - h * 0.9;

@@ -50,9 +50,7 @@ type UiLocalState = {
   winnerCountWasClamped: boolean;
   resultState: {
     open: boolean;
-    phase: "idle" | "countdown" | "revealing" | "summary";
-    countdownValue: number | null;
-    revealIndex: number;
+    phase: "idle" | "spinning" | "single" | "summary";
     requestedCount: number;
     effectiveCount: number;
     items: ResultUiItem[];
@@ -62,6 +60,8 @@ type UiLocalState = {
   inquiryStatus: string;
   inquiryOpenedAt: number;
   inquiryForm: InquiryForm;
+  speedMultiplier: number;
+  quickFinishPending: boolean;
 };
 
 type InquiryValidationResult =
@@ -230,8 +230,6 @@ export function bootstrapGameApp() {
     resultState: {
       open: false,
       phase: "idle",
-      countdownValue: null,
-      revealIndex: 0,
       requestedCount: 1,
       effectiveCount: 0,
       items: [],
@@ -241,16 +239,20 @@ export function bootstrapGameApp() {
     inquiryStatus: "",
     inquiryOpenedAt: 0,
     inquiryForm: { ...EMPTY_INQUIRY_FORM },
+    speedMultiplier: 1,
+    quickFinishPending: false,
   };
 
-  let revealTimerIds: number[] = [];
   let refreshUi: () => void = () => {};
+  let applyLoopSpeed = (_speedMultiplier: number): void => {};
+  let quickFinishRafId = 0;
+  let quickFinishJobId = 0;
+  let lastFrameUiRefreshAt = 0;
+  let lastFrameUiSignature = "";
 
-  function clearRevealTimer() {
-    if (!revealTimerIds.length) return;
-    for (const timerId of revealTimerIds) window.clearTimeout(timerId);
-    revealTimerIds = [];
-  }
+  const QUICK_FINISH_STEPS_PER_FRAME = 560;
+  const QUICK_FINISH_MAX_STEPS = 84000;
+  const FRAME_UI_THROTTLE_MS = 96;
 
   const catalogController = createCatalogController({
     state,
@@ -274,21 +276,75 @@ export function bootstrapGameApp() {
     return state.mode === "playing" && !state.winner;
   }
 
+  function cancelQuickFinishTask() {
+    quickFinishJobId += 1;
+    if (quickFinishRafId) {
+      window.cancelAnimationFrame(quickFinishRafId);
+      quickFinishRafId = 0;
+    }
+    uiState.quickFinishPending = false;
+  }
+
+  function completeRunNow(): boolean {
+    if (uiState.quickFinishPending) return false;
+    if (state.mode !== "playing" || state.winner) return false;
+
+    const jobId = quickFinishJobId + 1;
+    quickFinishJobId = jobId;
+    if (quickFinishRafId) {
+      window.cancelAnimationFrame(quickFinishRafId);
+      quickFinishRafId = 0;
+    }
+
+    uiState.quickFinishPending = true;
+    state.paused = false;
+    let stepped = 0;
+
+    const runChunk = () => {
+      if (jobId !== quickFinishJobId) return;
+
+      let localSteps = 0;
+      while (
+        localSteps < QUICK_FINISH_STEPS_PER_FRAME &&
+        stepped < QUICK_FINISH_MAX_STEPS &&
+        state.mode === "playing" &&
+        !state.winner
+      ) {
+        step(state, 1 / 60);
+        localSteps += 1;
+        stepped += 1;
+      }
+
+      sessionController.onAfterFrame();
+
+      if (state.winner || state.mode !== "playing" || stepped >= QUICK_FINISH_MAX_STEPS) {
+        if (jobId === quickFinishJobId) {
+          uiState.quickFinishPending = false;
+          quickFinishRafId = 0;
+          refreshUi();
+        }
+        return;
+      }
+
+      quickFinishRafId = window.requestAnimationFrame(runChunk);
+    };
+
+    quickFinishRafId = window.requestAnimationFrame(runChunk);
+    refreshUi();
+    return true;
+  }
+
   function closeResultModalPresentation() {
-    clearRevealTimer();
+    if (uiState.resultState.phase === "spinning") {
+      uiState.resultState.phase = resolveResultPhase(uiState.resultState.items);
+    }
     uiState.resultState.open = false;
-    uiState.resultState.countdownValue = null;
-    uiState.resultState.phase = "summary";
-    uiState.resultState.revealIndex = uiState.resultState.effectiveCount;
   }
 
   function resetResultHistory() {
-    clearRevealTimer();
     uiState.resultState = {
       open: false,
       phase: "idle",
-      countdownValue: null,
-      revealIndex: 0,
       requestedCount: uiState.winnerCount,
       effectiveCount: 0,
       items: [],
@@ -310,100 +366,35 @@ export function bootstrapGameApp() {
     });
   }
 
-  function startSingleResultCountdown() {
-    clearRevealTimer();
-    if (!uiState.resultState.open || uiState.resultState.effectiveCount <= 0) return;
-    uiState.resultState.phase = "countdown";
-    uiState.resultState.countdownValue = 3;
-    uiState.resultState.revealIndex = 0;
-
-    revealTimerIds = [
-      window.setTimeout(() => {
-        uiState.resultState.countdownValue = 2;
-        refreshUi();
-      }, 560),
-      window.setTimeout(() => {
-        uiState.resultState.countdownValue = 1;
-        refreshUi();
-      }, 1120),
-      window.setTimeout(() => {
-        uiState.resultState.countdownValue = null;
-        uiState.resultState.phase = "summary";
-        uiState.resultState.revealIndex = 1;
-        clearRevealTimer();
-        refreshUi();
-      }, 1680),
-    ];
+  function resolveResultPhase(items: ResultUiItem[]): "single" | "summary" {
+    return items.length === 1 ? "single" : "summary";
   }
 
   function openResultPresentationByCount(items: ResultUiItem[]) {
-    const isSingleMode = uiState.winnerCount === 1;
-    if (isSingleMode && items.length === 1) {
+    if (!items.length) {
       uiState.resultState = {
         open: true,
-        phase: "countdown",
-        countdownValue: 3,
-        revealIndex: 0,
+        phase: "summary",
         requestedCount: uiState.winnerCount,
-        effectiveCount: items.length,
+        effectiveCount: 0,
         items,
       };
-      startSingleResultCountdown();
       return;
     }
+
     uiState.resultState = {
       open: true,
-      phase: "summary",
-      countdownValue: null,
-      revealIndex: items.length,
+      phase: "spinning",
       requestedCount: uiState.winnerCount,
       effectiveCount: items.length,
       items,
     };
-    clearRevealTimer();
   }
 
-  function forceOpenResultSummary() {
+  function completeResultSpin() {
     if (!uiState.resultState.items.length) return;
-    clearRevealTimer();
-    uiState.resultState.phase = "summary";
-    uiState.resultState.countdownValue = null;
-    uiState.resultState.revealIndex = uiState.resultState.effectiveCount;
-  }
-
-  function skipResultCountdown() {
-    if (uiState.resultState.phase !== "countdown") return;
-    forceOpenResultSummary();
-  }
-
-  function hasCountdownRunning() {
-    return uiState.resultState.phase === "countdown" && uiState.resultState.countdownValue != null;
-  }
-
-  function maybeContinueSingleResultCountdownOnOpen() {
-    if (!hasCountdownRunning()) return;
-    if (!uiState.resultState.open) return;
-    if (revealTimerIds.length) return;
-    const current = Math.max(1, Math.min(3, Number(uiState.resultState.countdownValue) || 3));
-    const steps = current === 3 ? [2, 1] : current === 2 ? [1] : [];
-    const baseDelay = 560;
-    let acc = 0;
-    revealTimerIds = steps.map((value) => {
-      acc += baseDelay;
-      return window.setTimeout(() => {
-        uiState.resultState.countdownValue = value;
-        refreshUi();
-      }, acc);
-    });
-    revealTimerIds.push(
-      window.setTimeout(() => {
-        uiState.resultState.countdownValue = null;
-        uiState.resultState.phase = "summary";
-        uiState.resultState.revealIndex = uiState.resultState.effectiveCount;
-        clearRevealTimer();
-        refreshUi();
-      }, acc + baseDelay)
-    );
+    if (uiState.resultState.phase !== "spinning") return;
+    uiState.resultState.phase = resolveResultPhase(uiState.resultState.items);
   }
 
   function prepareAndOpenResultReveal() {
@@ -417,6 +408,10 @@ export function bootstrapGameApp() {
 
   function getLiveCatalogForDraft() {
     return cloneCatalogForDraft(catalogController.getCatalog() as unknown[]);
+  }
+
+  function getLiveCatalogView() {
+    return catalogController.getCatalog() as unknown as CatalogDraftItem[];
   }
 
   function ensureSettingsDraft() {
@@ -442,12 +437,25 @@ export function bootstrapGameApp() {
     uiState.settingsDraft = null;
   }
 
+  function refreshUiFromFrame() {
+    const inRun = state.mode === "playing" && !state.winner;
+    const remainingToFinish = inRun ? Math.max(0, (Number(state.totalToDrop) || 0) - state.finished.length) : -1;
+    const winnerT = state.winner ? Number(state.winner.t.toFixed(4)) : -1;
+    const signature = `${state.mode}|${state.paused ? 1 : 0}|${remainingToFinish}|${winnerT}|${uiState.quickFinishPending ? 1 : 0}`;
+    const now = performance.now();
+
+    if (signature === lastFrameUiSignature && now - lastFrameUiRefreshAt < FRAME_UI_THROTTLE_MS) return;
+    lastFrameUiSignature = signature;
+    lastFrameUiRefreshAt = now;
+    refreshUi();
+  }
+
   refreshUi = () => {
     const total = getTotalSelectedCount(state);
     const inRun = state.mode === "playing" && !state.winner;
     const remainingToFinish = inRun ? Math.max(0, (Number(state.totalToDrop) || 0) - state.finished.length) : 0;
     const view = renderer.getViewState?.();
-    const visibleCatalog = uiState.settingsOpen ? ensureSettingsDraft() : getLiveCatalogForDraft();
+    const visibleCatalog = uiState.settingsOpen ? ensureSettingsDraft() : getLiveCatalogView();
     const winnerCountMax = getWinnerCountMax();
     const clampedWinnerCount = clampResultCount(uiState.winnerCount, winnerCountMax);
     if (clampedWinnerCount !== uiState.winnerCount) {
@@ -473,11 +481,13 @@ export function bootstrapGameApp() {
     const nextSnapshot: UiSnapshot = {
       startDisabled: total <= 0,
       startLabel: inRun ? "다시 시작" : "게임 시작",
+      quickFinishPending: uiState.quickFinishPending,
       pauseDisabled: !inRun,
       pauseLabel: state.paused ? "이어하기" : "일시정지",
       pausePressed: !!state.paused,
       statusLabel,
       statusTone,
+      statusRemainingCount: inRun ? remainingToFinish : null,
       lastFewRemaining: remainingToFinish > 0 && remainingToFinish <= 3 ? remainingToFinish : 0,
       viewLockChecked: !!viewState.tailFocusOn,
       viewLockDisabled: !(state.mode === "playing" && state.released && view),
@@ -488,8 +498,6 @@ export function bootstrapGameApp() {
       resultState: {
         open: uiState.resultState.open,
         phase: uiState.resultState.phase,
-        countdownValue: uiState.resultState.countdownValue,
-        revealIndex: uiState.resultState.revealIndex,
         requestedCount: uiState.resultState.requestedCount,
         effectiveCount: uiState.resultState.effectiveCount,
         items: uiState.resultState.items.map((item) => ({ ...item })),
@@ -503,6 +511,7 @@ export function bootstrapGameApp() {
       inquirySubmitting: uiState.inquirySubmitting,
       inquiryStatus: uiState.inquiryStatus,
       inquiryForm: { ...uiState.inquiryForm },
+      speedMultiplier: uiState.speedMultiplier,
       balls: visibleCatalog.map((ball: CatalogDraftItem) => ({
         id: ball.id,
         name: ball.name,
@@ -529,11 +538,12 @@ export function bootstrapGameApp() {
       refreshUi();
     },
     onReset: () => {
+      cancelQuickFinishTask();
       uiState.winnerCountWasClamped = false;
       resetResultHistory();
       refreshUi();
     },
-    onUpdateControls: refreshUi,
+    onUpdateControls: refreshUiFromFrame,
     onShowWinner: () => {
       prepareAndOpenResultReveal();
       refreshUi();
@@ -542,12 +552,19 @@ export function bootstrapGameApp() {
 
   setUiActions({
     handleStartClick: () => {
+      cancelQuickFinishTask();
       closeResultModalPresentation();
       resetResultHistory();
       uiState.winnerCountWasClamped = false;
       sessionController.handleStartClick();
       refreshUi();
     },
+    prepareRestartForCountdown: () => {
+      cancelQuickFinishTask();
+      sessionController.prepareRestartForCountdown();
+      refreshUi();
+    },
+    completeRunNow: () => completeRunNow(),
     togglePause: () => {
       sessionController.togglePause();
       refreshUi();
@@ -663,7 +680,6 @@ export function bootstrapGameApp() {
     openResultModal: () => {
       if (!uiState.resultState.items.length) return false;
       uiState.resultState.open = true;
-      maybeContinueSingleResultCountdownOnOpen();
       refreshUi();
       return true;
     },
@@ -672,13 +688,13 @@ export function bootstrapGameApp() {
       refreshUi();
     },
     skipResultReveal: () => {
-      if (uiState.resultState.phase === "countdown") {
-        skipResultCountdown();
-      } else if (uiState.resultState.phase === "revealing") {
-        forceOpenResultSummary();
-      } else {
-        return;
-      }
+      if (uiState.resultState.phase !== "spinning") return;
+      completeResultSpin();
+      refreshUi();
+    },
+    completeResultSpin: () => {
+      if (uiState.resultState.phase !== "spinning") return;
+      completeResultSpin();
       refreshUi();
     },
     copyResults: async () => {
@@ -691,6 +707,7 @@ export function bootstrapGameApp() {
       return copied;
     },
     restartFromResult: () => {
+      cancelQuickFinishTask();
       closeResultModalPresentation();
       resetResultHistory();
       uiState.winnerCountWasClamped = false;
@@ -780,6 +797,12 @@ export function bootstrapGameApp() {
       else renderer.setCameraOverrideY?.(v.cameraY);
       refreshUi();
     },
+    toggleSpeedMode: () => {
+      const next = uiState.speedMultiplier >= 2 ? 1 : 2;
+      uiState.speedMultiplier = next;
+      applyLoopSpeed(next);
+      refreshUi();
+    },
     setBallCount: (ballId, nextValue) => {
       if (isBallControlLocked()) return;
       setBallCount(state, ballId, nextValue);
@@ -809,7 +832,11 @@ export function bootstrapGameApp() {
     getImagesById: catalogController.getImagesById,
     onAfterFrame: sessionController.onAfterFrame,
     syncViewportHeight: syncVisualViewportHeight,
+    initialSpeedMultiplier: uiState.speedMultiplier,
   });
+  applyLoopSpeed = (speedMultiplier) => {
+    loopController.setSpeedMultiplier(speedMultiplier);
+  };
 
   mountDebugHooks({
     state,
@@ -840,11 +867,6 @@ export function bootstrapGameApp() {
     updateControls: refreshUi,
   });
 
-  const onPageHide = () => {
-    clearRevealTimer();
-  };
-  window.addEventListener("pagehide", onPageHide);
-
   loopController.startAnimationLoop();
 
   audioController.restoreFromStorage();
@@ -853,8 +875,7 @@ export function bootstrapGameApp() {
   return {
     refreshUi,
     dispose: () => {
-      clearRevealTimer();
-      window.removeEventListener("pagehide", onPageHide);
+      cancelQuickFinishTask();
     },
   };
 }

@@ -12,6 +12,7 @@
  *   getImagesById: () => Map<string, HTMLImageElement>;
  *   onAfterFrame?: () => void;
  *   syncViewportHeight?: () => void;
+ *   initialSpeedMultiplier?: number;
  * }} opts
  */
 export function createLoopController<State extends { mode?: string; paused?: boolean }, Ball>(opts: {
@@ -25,6 +26,7 @@ export function createLoopController<State extends { mode?: string; paused?: boo
   getImagesById: () => Map<string, HTMLImageElement>;
   onAfterFrame?: () => void;
   syncViewportHeight?: () => void;
+  initialSpeedMultiplier?: number;
 }) {
   const {
     state,
@@ -34,10 +36,14 @@ export function createLoopController<State extends { mode?: string; paused?: boo
     getImagesById,
     onAfterFrame = () => {},
     syncViewportHeight = () => {},
+    initialSpeedMultiplier = 1,
   } = opts;
 
   let resizeRaf = 0;
   let last = performance.now();
+  let speedMultiplier = Number.isFinite(initialSpeedMultiplier)
+    ? Math.max(0.5, Math.min(3, initialSpeedMultiplier))
+    : 1;
 
   function draw(): void {
     renderer.draw(state, getBallsCatalog(), getImagesById());
@@ -76,11 +82,18 @@ export function createLoopController<State extends { mode?: string; paused?: boo
     function raf(now: number): void {
       const dtMs = Math.min(40, now - last);
       last = now;
-      if (state.mode === "playing" && !state.paused) tickFixed(dtMs);
+      if (state.mode === "playing" && !state.paused) tickFixed(dtMs * speedMultiplier);
       else draw();
       requestAnimationFrame(raf);
     }
     requestAnimationFrame(raf);
+  }
+
+  function setSpeedMultiplier(next: number): number {
+    const parsed = Number(next);
+    const clamped = Number.isFinite(parsed) ? Math.max(0.5, Math.min(3, parsed)) : 1;
+    speedMultiplier = clamped;
+    return speedMultiplier;
   }
 
   return {
@@ -88,5 +101,6 @@ export function createLoopController<State extends { mode?: string; paused?: boo
     scheduleResize,
     mountResizeListeners,
     startAnimationLoop,
+    setSpeedMultiplier,
   };
 }

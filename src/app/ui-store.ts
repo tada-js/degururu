@@ -10,7 +10,7 @@ export type InquiryForm = {
   [K in InquiryField]: string;
 };
 
-export type ResultRevealPhase = "idle" | "countdown" | "revealing" | "summary";
+export type ResultRevealPhase = "idle" | "spinning" | "single" | "summary";
 
 export type ResultUiItem = {
   rank: number;
@@ -25,8 +25,6 @@ export type ResultUiItem = {
 export type ResultUiState = {
   open: boolean;
   phase: ResultRevealPhase;
-  countdownValue: number | null;
-  revealIndex: number;
   requestedCount: number;
   effectiveCount: number;
   items: ReadonlyArray<ResultUiItem>;
@@ -49,11 +47,13 @@ export type InquirySubmitResult =
 export type UiSnapshot = {
   startDisabled: boolean;
   startLabel: string;
+  quickFinishPending: boolean;
   pauseDisabled: boolean;
   pauseLabel: string;
   pausePressed: boolean;
   statusLabel: string;
   statusTone: StatusTone;
+  statusRemainingCount: number | null;
   lastFewRemaining: number;
   viewLockChecked: boolean;
   viewLockDisabled: boolean;
@@ -71,11 +71,14 @@ export type UiSnapshot = {
   inquirySubmitting: boolean;
   inquiryStatus: string;
   inquiryForm: InquiryForm;
+  speedMultiplier: number;
   balls: BallUiModel[];
 };
 
 export type UiActions = {
   handleStartClick: () => void;
+  prepareRestartForCountdown: () => void;
+  completeRunNow: () => boolean;
   togglePause: () => void;
   setWinnerCount: (nextValue: number) => void;
   openSettings: () => void;
@@ -91,6 +94,7 @@ export type UiActions = {
   openResultModal: () => boolean;
   closeResultModal: () => void;
   skipResultReveal: () => void;
+  completeResultSpin: () => void;
   copyResults: () => Promise<boolean> | boolean;
   restartFromResult: () => void;
   toggleBgm: () => void;
@@ -102,16 +106,19 @@ export type UiActions = {
   closeInquiry: () => void;
   setInquiryField: (field: InquiryField, value: string) => boolean;
   submitInquiry: () => Promise<InquirySubmitResult> | InquirySubmitResult;
+  toggleSpeedMode: () => void;
 };
 
 const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
   startDisabled: true,
   startLabel: "게임 시작",
+  quickFinishPending: false,
   pauseDisabled: true,
   pauseLabel: "일시정지",
   pausePressed: false,
   statusLabel: "준비됨",
   statusTone: "ready",
+  statusRemainingCount: null,
   lastFewRemaining: 0,
   viewLockChecked: true,
   viewLockDisabled: true,
@@ -122,8 +129,6 @@ const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
   resultState: Object.freeze({
     open: false,
     phase: "idle",
-    countdownValue: null,
-    revealIndex: 0,
     requestedCount: 1,
     effectiveCount: 0,
     items: Object.freeze([]),
@@ -143,6 +148,7 @@ const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
     message: "",
     website: "",
   }),
+  speedMultiplier: 1,
   balls: [],
 });
 
@@ -153,6 +159,8 @@ const NOOP_SUBMIT = (): InquirySubmitResult => ({ ok: false, message: "구현되
 let snapshot: UiSnapshot = DEFAULT_SNAPSHOT;
 let actions: UiActions = {
   handleStartClick: NOOP_VOID,
+  prepareRestartForCountdown: NOOP_VOID,
+  completeRunNow: NOOP_FALSE,
   togglePause: NOOP_VOID,
   setWinnerCount: NOOP_VOID,
   openSettings: NOOP_VOID,
@@ -168,6 +176,7 @@ let actions: UiActions = {
   openResultModal: NOOP_FALSE,
   closeResultModal: NOOP_VOID,
   skipResultReveal: NOOP_VOID,
+  completeResultSpin: NOOP_VOID,
   copyResults: NOOP_FALSE,
   restartFromResult: NOOP_VOID,
   toggleBgm: NOOP_VOID,
@@ -179,6 +188,7 @@ let actions: UiActions = {
   closeInquiry: NOOP_VOID,
   setInquiryField: NOOP_FALSE,
   submitInquiry: NOOP_SUBMIT,
+  toggleSpeedMode: NOOP_VOID,
 };
 
 function notify() {
@@ -190,11 +200,13 @@ function isEqualSnapshot(a: UiSnapshot, b: UiSnapshot) {
   if (
     a.startDisabled !== b.startDisabled ||
     a.startLabel !== b.startLabel ||
+    a.quickFinishPending !== b.quickFinishPending ||
     a.pauseDisabled !== b.pauseDisabled ||
     a.pauseLabel !== b.pauseLabel ||
     a.pausePressed !== b.pausePressed ||
     a.statusLabel !== b.statusLabel ||
     a.statusTone !== b.statusTone ||
+    a.statusRemainingCount !== b.statusRemainingCount ||
     a.lastFewRemaining !== b.lastFewRemaining ||
     a.viewLockChecked !== b.viewLockChecked ||
     a.viewLockDisabled !== b.viewLockDisabled ||
@@ -209,7 +221,8 @@ function isEqualSnapshot(a: UiSnapshot, b: UiSnapshot) {
     a.bgmTrack !== b.bgmTrack ||
     a.inquiryOpen !== b.inquiryOpen ||
     a.inquirySubmitting !== b.inquirySubmitting ||
-    a.inquiryStatus !== b.inquiryStatus
+    a.inquiryStatus !== b.inquiryStatus ||
+    a.speedMultiplier !== b.speedMultiplier
   ) {
     return false;
   }
@@ -219,8 +232,6 @@ function isEqualSnapshot(a: UiSnapshot, b: UiSnapshot) {
   if (
     aResult.open !== bResult.open ||
     aResult.phase !== bResult.phase ||
-    aResult.countdownValue !== bResult.countdownValue ||
-    aResult.revealIndex !== bResult.revealIndex ||
     aResult.requestedCount !== bResult.requestedCount ||
     aResult.effectiveCount !== bResult.effectiveCount ||
     aResult.items.length !== bResult.items.length
