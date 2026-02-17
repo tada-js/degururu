@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ResultUiState } from "../../../app/ui-store";
 import { Button } from "../Button";
 import { ModalCard } from "../Modal";
@@ -19,10 +19,11 @@ type ResultModalProps = {
   onRestart: () => void;
 };
 
-const SPIN_DURATION_MS = 2200;
+const SPIN_DURATION_MS = 3700;
 const SPIN_SETTLE_MS = 130;
 const REEL_ITEM_HEIGHT = 68;
 const REEL_CENTER_Y = REEL_ITEM_HEIGHT;
+const RESULT_BURST_DURATION_MS = 1100;
 
 type ResultViewKind = "spinning" | "single" | "summary" | "waiting";
 
@@ -67,6 +68,8 @@ export function ResultModal({
   const frameRef = useRef<number | null>(null);
   const doneRef = useRef(false);
   const onSpinDoneRef = useRef(onSpinDone);
+  const prevPhaseRef = useRef(state.phase);
+  const [burstVisible, setBurstVisible] = useState(false);
 
   const finalWinner = state.items[0] || null;
   const isSpinning = state.phase === "spinning";
@@ -76,6 +79,25 @@ export function ResultModal({
   useEffect(() => {
     onSpinDoneRef.current = onSpinDone;
   }, [onSpinDone]);
+
+  useEffect(() => {
+    const prevPhase = prevPhaseRef.current;
+    const isRevealTransition =
+      prevPhase === "spinning" &&
+      (state.phase === "single" || state.phase === "summary");
+    prevPhaseRef.current = state.phase;
+    if (!isRevealTransition) return;
+
+    setBurstVisible(true);
+    const timer = window.setTimeout(() => setBurstVisible(false), RESULT_BURST_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [state.phase]);
+
+  useEffect(() => {
+    if (!state.open || state.phase === "idle" || state.phase === "spinning") {
+      setBurstVisible(false);
+    }
+  }, [state.open, state.phase]);
 
   const spinPlan = useMemo(() => {
     if (!finalWinner) return null;
@@ -206,7 +228,7 @@ export function ResultModal({
   }, [state.open, isSpinning, isSingle, isSummary]);
 
   const resultCountTitle = `당첨자 목록(${state.items.length})`;
-  const title = isSpinning ? "결과 선택 중…" : resultCountTitle;
+  const title = isSpinning ? "결과 발표 대기중" : resultCountTitle;
   const viewKind = getResultViewKind({
     isSpinning,
     spinPlan,
@@ -219,7 +241,7 @@ export function ResultModal({
     if (viewKind === "spinning" && spinPlan) {
       return (
         <div className="resultSpinView">
-          <div className="resultSpinView__status">결과 선택 중…</div>
+          <div className="resultSpinView__status">결과 발표 대기중</div>
           <div className="resultSpinView__viewport" ref={reelViewportRef} aria-live="polite">
             <div className="resultSpinView__track" ref={reelTrackRef}>
               {spinPlan.items.map((item) => (
@@ -294,7 +316,25 @@ export function ResultModal({
 
   return (
     <ModalCard size="md" title={title} onClose={onClose} footer={renderFooter()}>
-      <div className="resultModal__body">{renderBody()}</div>
+      <div className="resultModal__body">
+        {burstVisible ? (
+          <div className="resultModal__burst winner__confetti" aria-hidden="true">
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+            <span className="c"></span>
+          </div>
+        ) : null}
+        {renderBody()}
+      </div>
     </ModalCard>
   );
 }

@@ -66,11 +66,18 @@ export type Segment = {
   dx: number;
   dy: number;
   len2: number;
+  xMin: number;
+  xMax: number;
   yMin: number;
   yMax: number;
 };
 
 export type SegmentBins = {
+  binH: number;
+  bins: number[][];
+};
+
+export type InfluenceBins = {
   binH: number;
   bins: number[][];
 };
@@ -125,7 +132,9 @@ export type RouletteLayout = {
 export type ZigzagLayout = {
   entities: FixedEntity[];
   propellers: Propeller[];
+  propellerBins: InfluenceBins | null;
   rotors: Rotor[];
+  rotorBins: InfluenceBins | null;
   topY: number;
   spawnY: number;
   spawnBoundsAtY: SpawnBoundsAtY;
@@ -274,6 +283,19 @@ export type SnapshotPayload = {
     result: MarbleResult | null;
   }>;
   lastResult: LastResult | null;
+};
+
+type RuntimePropeller = {
+  p: Propeller;
+  seg: Segment;
+  cx: number;
+  cy: number;
+  boundR: number;
+};
+
+type WallResolveScratch = {
+  seen: Uint32Array;
+  stamp: number;
 };
 
 export function makeRng(seed: number): Rng {
@@ -466,6 +488,48 @@ function getLayoutTopY(board: Board): number | null {
   return null;
 }
 
+function getPlayableBoundsAtY(
+  y: number,
+  worldW: number,
+  corridor: Corridor | null,
+  layoutSpawnBoundsAtY: ((y: number) => SpawnBounds) | null
+): SpawnBounds {
+  if (layoutSpawnBoundsAtY) return layoutSpawnBoundsAtY(y);
+  if (corridor) return corridorAt(corridor, y);
+  return { left: 0, right: worldW };
+}
+
+function confineMarbleX(m: Marble, bounds: SpawnBounds, restitution: number): void {
+  const left = bounds.left + m.r;
+  const right = bounds.right - m.r;
+  if (right <= left) {
+    m.x = (left + right) * 0.5;
+    m.vx = 0;
+    return;
+  }
+  if (m.x < left) {
+    m.x = left;
+    m.vx = Math.abs(m.vx) * restitution;
+    return;
+  }
+  if (m.x > right) {
+    m.x = right;
+    m.vx = -Math.abs(m.vx) * restitution;
+  }
+}
+
+function separateCoincidentMarbles(a: Marble, b: Marble, rr: number): void {
+  const seed = hash01(`${a.id}|${b.id}`);
+  const ang = seed * Math.PI * 2;
+  const nx = Math.cos(ang);
+  const ny = Math.sin(ang);
+  const push = rr * 0.501;
+  a.x += nx * push;
+  a.y += ny * push;
+  b.x -= nx * push;
+  b.y -= ny * push;
+}
+
 export function setDropX(state: GameState, x: number): void {
   const pad = state.board.ballR + 2;
   const spawnBoundsAtY = getLayoutSpawnBoundsAtY(state.board);
@@ -545,26 +609,67 @@ export function step(state: GameState, dt: number): void {
   const { worldW, worldH, slotH, pegRows, slots, slotW, topPad, pegGapY, corridor, wallSegments, wallBins, zigzag } =
     state.board;
   const finishY = worldH - slotH;
+  const layoutSpawnBoundsAtY = getLayoutSpawnBoundsAtY(state.board);
   const propellers = zigzag?.propellers || null;
+  const propellerBins = zigzag?.propellerBins || null;
   const rotors = zigzag?.rotors || null;
+  const rotorBins = zigzag?.rotorBins || null;
 
   // Prevent tunneling through thin walls when many marbles pile up by sub-stepping.
   // Keep this capped to avoid exploding CPU cost for large counts.
   let maxSpeed = 0;
   let minR = Infinity;
+  let activeCount = 0;
   for (const m of state.marbles) {
     if (m.done) continue;
+    activeCount += 1;
     const sp = Math.hypot(m.vx, m.vy);
     if (sp > maxSpeed) maxSpeed = sp;
     if (m.r < minR) minR = m.r;
   }
   const maxDisp = maxSpeed * dt + 0.5 * g * dt * dt;
   const targetDisp = Math.max(4, (Number.isFinite(minR) ? minR : 18) * 0.45);
-  const subSteps = clampInt(Math.ceil(maxDisp / targetDisp), 1, 6);
+  let subStepCap = 6;
+  let collisionIterations = 2;
+  let pegRowRadius = 2;
+  if (activeCount >= 72) {
+    subStepCap = 2;
+    collisionIterations = 1;
+    pegRowRadius = 1;
+  } else if (activeCount >= 48) {
+    subStepCap = 3;
+    collisionIterations = 1;
+    pegRowRadius = 1;
+  } else if (activeCount >= 30) {
+    subStepCap = 4;
+  }
+  let propellerCandidateCap = 8;
+  let rotorCandidateCap = 12;
+  if (activeCount >= 72) {
+    propellerCandidateCap = 3;
+    rotorCandidateCap = 5;
+  } else if (activeCount >= 48) {
+    propellerCandidateCap = 4;
+    rotorCandidateCap = 7;
+  } else if (activeCount >= 30) {
+    propellerCandidateCap = 6;
+    rotorCandidateCap = 9;
+  }
+  const subSteps = clampInt(Math.ceil(maxDisp / targetDisp), 1, subStepCap);
   const dtSub = dt / subSteps;
+  const wallScratch = getWallResolveScratch(state.board);
+  const propellerSeen = propellers && propellers.length ? new Uint32Array(propellers.length) : null;
+  const rotorSeen = rotors && rotors.length ? new Uint32Array(rotors.length) : null;
+  let propellerSeenStamp = 1;
+  let rotorSeenStamp = 1;
+  const runtimePropellers: RuntimePropeller[] = [];
 
   for (let s = 0; s < subSteps; s++) {
     state.t += dtSub;
+    const runtimePropellersNow =
+      propellers && propellers.length
+        ? updateRuntimePropellers(runtimePropellers, propellers, state.t, state.board.ballR)
+        : null;
 
     // Integrate.
     for (const m of state.marbles) {
@@ -634,36 +739,24 @@ export function step(state: GameState, dt: number): void {
     }
 
     // Resolve collisions. Iterate a couple times to handle dense stacks.
-    for (let iter = 0; iter < 2; iter++) {
+    for (let iter = 0; iter < collisionIterations; iter++) {
       for (const m of state.marbles) {
         if (m.done) continue;
 
-        // Walls (roulette map segments OR variable-width corridor OR plain bounds).
+        // Walls (fixed segments first), then always clamp to playable bounds.
         if (wallSegments && wallSegments.length) {
-          resolveWallSegments(state.board, m, restitution, wallSegments, wallBins);
-        } else if (corridor) {
-          const { left, right } = corridorAt(corridor, m.y);
-          if (m.x - m.r < left) {
-            m.x = left + m.r;
-            m.vx = Math.abs(m.vx) * restitution;
-          } else if (m.x + m.r > right) {
-            m.x = right - m.r;
-            m.vx = -Math.abs(m.vx) * restitution;
-          }
-        } else {
-          if (m.x - m.r < 0) {
-            m.x = m.r;
-            m.vx = Math.abs(m.vx) * restitution;
-          } else if (m.x + m.r > worldW) {
-            m.x = worldW - m.r;
-            m.vx = -Math.abs(m.vx) * restitution;
-          }
+          resolveWallSegments(state.board, m, restitution, wallSegments, wallBins, wallScratch);
         }
+        confineMarbleX(m, getPlayableBoundsAtY(m.y, worldW, corridor, layoutSpawnBoundsAtY), restitution);
 
         // Peg collisions (fixed pegs). Only check nearby rows for perf on tall boards.
         if (pegRows && pegRows.length) {
           const rCenter = clampInt(Math.round((m.y - topPad) / pegGapY), 0, pegRows.length - 1);
-          for (let rr = Math.max(0, rCenter - 2); rr <= Math.min(pegRows.length - 1, rCenter + 2); rr++) {
+          for (
+            let rr = Math.max(0, rCenter - pegRowRadius);
+            rr <= Math.min(pegRows.length - 1, rCenter + pegRowRadius);
+            rr++
+          ) {
             const row = pegRows[rr];
             for (const p of row) {
               const dx = m.x - p.x;
@@ -697,51 +790,108 @@ export function step(state: GameState, dt: number): void {
         }
 
         // Zigzag layout: rotating propellers in mixing chamber.
-        if (propellers && propellers.length) {
-          for (const p of propellers) {
-            resolvePropeller(state, m, p, restitution);
+        if (runtimePropellersNow && runtimePropellersNow.length) {
+          let propellerChecked = 0;
+          if (propellerBins && propellerSeen && propellerBins.bins.length) {
+            propellerSeenStamp += 1;
+            if (propellerSeenStamp >= 2_147_483_640) {
+              propellerSeen.fill(0);
+              propellerSeenStamp = 1;
+            }
+            const yPad = m.r + state.board.ballR + 10;
+            const i0 = clampInt(
+              Math.floor((m.y - yPad) / propellerBins.binH),
+              0,
+              propellerBins.bins.length - 1
+            );
+            const i1 = clampInt(
+              Math.floor((m.y + yPad) / propellerBins.binH),
+              0,
+              propellerBins.bins.length - 1
+            );
+            for (let bi = i0; bi <= i1; bi++) {
+              const bucket = propellerBins.bins[bi];
+              for (const idx of bucket) {
+                if (propellerSeen[idx] === propellerSeenStamp) continue;
+                propellerSeen[idx] = propellerSeenStamp;
+                const runtime = runtimePropellersNow[idx];
+                if (!runtime) continue;
+                const dx = m.x - runtime.cx;
+                const dy = m.y - runtime.cy;
+                const limit = runtime.boundR;
+                if (Math.abs(dx) > limit || Math.abs(dy) > limit) continue;
+                if (dx * dx + dy * dy > limit * limit) continue;
+                resolveRuntimePropeller(state, m, runtime, restitution);
+                propellerChecked += 1;
+                if (propellerChecked >= propellerCandidateCap) break;
+              }
+              if (propellerChecked >= propellerCandidateCap) break;
+            }
+          } else {
+            for (const runtime of runtimePropellersNow) {
+              const dx = m.x - runtime.cx;
+              const dy = m.y - runtime.cy;
+              const limit = runtime.boundR;
+              if (Math.abs(dx) > limit || Math.abs(dy) > limit) continue;
+              if (dx * dx + dy * dy > limit * limit) continue;
+              resolveRuntimePropeller(state, m, runtime, restitution);
+              propellerChecked += 1;
+              if (propellerChecked >= propellerCandidateCap) break;
+            }
           }
         }
 
         // Zigzag layout: early circular rotors near the start.
         if (rotors && rotors.length) {
-          for (const r of rotors) resolveRotor(state, m, r, restitution);
+          let rotorChecked = 0;
+          if (rotorBins && rotorSeen && rotorBins.bins.length) {
+            rotorSeenStamp += 1;
+            if (rotorSeenStamp >= 2_147_483_640) {
+              rotorSeen.fill(0);
+              rotorSeenStamp = 1;
+            }
+            const yPad = m.r + state.board.ballR + 8;
+            const i0 = clampInt(Math.floor((m.y - yPad) / rotorBins.binH), 0, rotorBins.bins.length - 1);
+            const i1 = clampInt(Math.floor((m.y + yPad) / rotorBins.binH), 0, rotorBins.bins.length - 1);
+            for (let bi = i0; bi <= i1; bi++) {
+              const bucket = rotorBins.bins[bi];
+              for (const idx of bucket) {
+                if (rotorSeen[idx] === rotorSeenStamp) continue;
+                rotorSeen[idx] = rotorSeenStamp;
+                const r = rotors[idx];
+                if (!r) continue;
+                const dy = m.y - r.y;
+                const sumR = m.r + r.r;
+                if (Math.abs(dy) > sumR) continue;
+                const dx = m.x - r.x;
+                if (Math.abs(dx) > sumR) continue;
+                resolveRotor(state, m, r, restitution);
+                rotorChecked += 1;
+                if (rotorChecked >= rotorCandidateCap) break;
+              }
+              if (rotorChecked >= rotorCandidateCap) break;
+            }
+          } else {
+            for (const r of rotors) {
+              const dy = m.y - r.y;
+              const sumR = m.r + r.r;
+              if (Math.abs(dy) > sumR) continue;
+              const dx = m.x - r.x;
+              if (Math.abs(dx) > sumR) continue;
+              resolveRotor(state, m, r, restitution);
+              rotorChecked += 1;
+              if (rotorChecked >= rotorCandidateCap) break;
+            }
+          }
         }
       }
 
       // Marble-marble collisions (simple impulse).
-      // This keeps the "all drop together" case from looking like ghosts.
-      for (let i = 0; i < state.marbles.length; i++) {
-        const a = state.marbles[i];
-        if (a.done) continue;
-        for (let j = i + 1; j < state.marbles.length; j++) {
-          const b = state.marbles[j];
-          if (b.done) continue;
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const rr = a.r + b.r;
-          const d2 = dx * dx + dy * dy;
-          if (d2 >= rr * rr || d2 === 0) continue;
-          const d = Math.sqrt(d2);
-          const nx = dx / d;
-          const ny = dy / d;
-          const push = (rr - d) * 0.5;
-          a.x += nx * push;
-          a.y += ny * push;
-          b.x -= nx * push;
-          b.y -= ny * push;
-
-          const rvx = a.vx - b.vx;
-          const rvy = a.vy - b.vy;
-          const vn = rvx * nx + rvy * ny;
-          if (vn < 0) {
-            const imp = -(1 + restitution) * vn * 0.5; // equal mass
-            a.vx += imp * nx;
-            a.vy += imp * ny;
-            b.vx -= imp * nx;
-            b.vy -= imp * ny;
-          }
-        }
+      // Uses a grid broad-phase under load to avoid O(n^2) blowups.
+      resolveMarbleCollisions(state.marbles, restitution, worldW, state.board.ballR);
+      for (const m of state.marbles) {
+        if (m.done) continue;
+        confineMarbleX(m, getPlayableBoundsAtY(m.y, worldW, corridor, layoutSpawnBoundsAtY), restitution);
       }
     }
 
@@ -785,6 +935,7 @@ export function step(state: GameState, dt: number): void {
         // Also move the marble slightly downward to break geometric "corner locks".
         // (Velocity-only nudges can be canceled out by immediate wall pushes.)
         m.y += Math.max(2, m.r * (0.7 + 0.5 * (k - 1)));
+        confineMarbleX(m, getPlayableBoundsAtY(m.y, worldW, corridor, layoutSpawnBoundsAtY), restitution);
         m._unstuckCdMs = 2500;
       }
     }
@@ -795,6 +946,116 @@ export function step(state: GameState, dt: number): void {
       state.winner = last;
       break;
     }
+  }
+}
+
+function resolveMarbleCollisions(marbles: Marble[], restitution: number, worldW: number, ballR: number): void {
+  const activeMarbles: Marble[] = [];
+  for (const marble of marbles) {
+    if (marble.done) continue;
+    activeMarbles.push(marble);
+  }
+  if (activeMarbles.length < 2) return;
+
+  // For small counts, direct pair checks are simpler and cheap enough.
+  if (activeMarbles.length < 26) {
+    resolveMarbleCollisionsNaive(activeMarbles, restitution);
+    return;
+  }
+
+  resolveMarbleCollisionsGrid(activeMarbles, restitution, worldW, ballR);
+}
+
+function resolveMarbleCollisionsNaive(activeMarbles: Marble[], restitution: number): void {
+  for (let i = 0; i < activeMarbles.length; i++) {
+    const a = activeMarbles[i];
+    for (let j = i + 1; j < activeMarbles.length; j++) {
+      const b = activeMarbles[j];
+      resolveMarblePair(a, b, restitution);
+    }
+  }
+}
+
+function resolveMarbleCollisionsGrid(
+  activeMarbles: Marble[],
+  restitution: number,
+  worldW: number,
+  ballR: number
+): void {
+  const cellSize = Math.max(14, ballR * 2.1);
+  const cols = Math.max(1, Math.ceil(worldW / cellSize));
+  const bins = new Map<number, Marble[]>();
+
+  for (const marble of activeMarbles) {
+    const cx = clampInt(Math.floor(marble.x / cellSize), 0, cols - 1);
+    const cy = Math.floor(marble.y / cellSize);
+    const key = cy * cols + cx;
+    const list = bins.get(key);
+    if (list) {
+      list.push(marble);
+    } else {
+      bins.set(key, [marble]);
+    }
+  }
+
+  const neighborOffsets = [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [-1, 1],
+  ] as const;
+
+  for (const [key, list] of bins.entries()) {
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      for (let j = i + 1; j < list.length; j++) {
+        resolveMarblePair(a, list[j], restitution);
+      }
+    }
+
+    const cy = Math.floor(key / cols);
+    const cx = key - cy * cols;
+    for (const [dx, dy] of neighborOffsets) {
+      const neighborKey = (cy + dy) * cols + (cx + dx);
+      const others = bins.get(neighborKey);
+      if (!others) continue;
+      for (const a of list) {
+        for (const b of others) {
+          resolveMarblePair(a, b, restitution);
+        }
+      }
+    }
+  }
+}
+
+function resolveMarblePair(a: Marble, b: Marble, restitution: number): void {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const rr = a.r + b.r;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= rr * rr) return;
+  if (d2 === 0) {
+    separateCoincidentMarbles(a, b, rr);
+    return;
+  }
+  const d = Math.sqrt(d2);
+  const nx = dx / d;
+  const ny = dy / d;
+  const push = (rr - d) * 0.5;
+  a.x += nx * push;
+  a.y += ny * push;
+  b.x -= nx * push;
+  b.y -= ny * push;
+
+  const rvx = a.vx - b.vx;
+  const rvy = a.vy - b.vy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn < 0) {
+    const imp = -(1 + restitution) * vn * 0.5; // equal mass
+    a.vx += imp * nx;
+    a.vy += imp * ny;
+    b.vx -= imp * nx;
+    b.vy -= imp * ny;
   }
 }
 
@@ -926,23 +1187,21 @@ function settleMarbles(state: GameState, iterations: number): void {
   const { worldW, wallSegments, wallBins, corridor } = state.board;
   const restitution = 0.25;
   const topY = getLayoutTopY(state.board);
+  const layoutSpawnBoundsAtY = getLayoutSpawnBoundsAtY(state.board);
+  const wallScratch = getWallResolveScratch(state.board);
   for (let it = 0; it < iterations; it++) {
     // Walls first.
     for (const m of state.marbles) {
       if (m.done) continue;
       if (wallSegments && wallSegments.length) {
-        resolveWallSegments(state.board, m, restitution, wallSegments, wallBins);
+        resolveWallSegments(state.board, m, restitution, wallSegments, wallBins, wallScratch);
         // Also clamp against top cap line even if segments miss due to numerical issues.
         if (topY != null) {
           const top = topY + m.r + 2;
           if (m.y < top) m.y = top;
         }
-      } else if (corridor) {
-        const { left, right } = corridorAt(corridor, m.y);
-        m.x = clamp(m.x, left + m.r, right - m.r);
-      } else {
-        m.x = clamp(m.x, m.r, worldW - m.r);
       }
+      confineMarbleX(m, getPlayableBoundsAtY(m.y, worldW, corridor, layoutSpawnBoundsAtY), restitution);
     }
     // Marble-marble separation.
     for (let i = 0; i < state.marbles.length; i++) {
@@ -955,7 +1214,11 @@ function settleMarbles(state: GameState, iterations: number): void {
         const dy = a.y - b.y;
         const rr = a.r + b.r;
         const d2 = dx * dx + dy * dy;
-        if (d2 >= rr * rr || d2 === 0) continue;
+        if (d2 >= rr * rr) continue;
+        if (d2 === 0) {
+          separateCoincidentMarbles(a, b, rr);
+          continue;
+        }
         const d = Math.sqrt(d2);
         const nx = dx / d;
         const ny = dy / d;
@@ -965,6 +1228,10 @@ function settleMarbles(state: GameState, iterations: number): void {
         b.x -= nx * push;
         b.y -= ny * push;
       }
+    }
+    for (const m of state.marbles) {
+      if (m.done) continue;
+      confineMarbleX(m, getPlayableBoundsAtY(m.y, worldW, corridor, layoutSpawnBoundsAtY), restitution);
     }
   }
 }
@@ -1180,7 +1447,7 @@ function makeZigzagLayout({
 
   // Zigzag: add straight propellers right after each bend to create interaction
   // without extra object systems.
-  const propellers = [];
+  const propellers: Propeller[] = [];
   let turnIdx = 0;
   for (let i = 0; i < keys.length - 1; i++) {
     const a = keys[i];
@@ -1309,10 +1576,28 @@ function makeZigzagLayout({
     }
   }
 
+  const influenceBinH = Math.max(90, ballR * 8);
+  const propellerBins = buildInfluenceBins(
+    worldH,
+    influenceBinH,
+    propellers.length,
+    (index) => propellers[index].y,
+    (index) => propellers[index].len * 0.5 + ballR + 8
+  );
+  const rotorBins = buildInfluenceBins(
+    worldH,
+    influenceBinH,
+    rotors.length,
+    (index) => rotors[index].y,
+    (index) => rotors[index].r + ballR + 6
+  );
+
   return {
     entities,
     propellers,
+    propellerBins,
     rotors,
+    rotorBins,
     topY,
     spawnY,
     spawnBoundsAtY: (y) => {
@@ -1565,6 +1850,8 @@ function makeSeg(x0: number, y0: number, x1: number, y1: number): Segment {
     dx,
     dy,
     len2: Math.max(1e-9, len2),
+    xMin: Math.min(x0, x1),
+    xMax: Math.max(x0, x1),
     yMin: Math.min(y0, y1),
     yMax: Math.max(y0, y1)
   };
@@ -1584,33 +1871,91 @@ function buildSegmentBins(segments: Segment[], binH: number): SegmentBins {
   return { binH, bins };
 }
 
+const wallScratchByBoard = new WeakMap<Board, WallResolveScratch>();
+
+function getWallResolveScratch(board: Board): WallResolveScratch | null {
+  const segments = board.wallSegments;
+  if (!segments || !segments.length) return null;
+  const len = segments.length;
+  const found = wallScratchByBoard.get(board);
+  if (found && found.seen.length === len) return found;
+  const created: WallResolveScratch = {
+    seen: new Uint32Array(len),
+    stamp: 1,
+  };
+  wallScratchByBoard.set(board, created);
+  return created;
+}
+
+function buildInfluenceBins(
+  worldH: number,
+  binH: number,
+  count: number,
+  getCenterY: (index: number) => number,
+  getHalfSpan: (index: number) => number
+): InfluenceBins | null {
+  if (!count) return null;
+  const n = Math.max(1, Math.ceil(worldH / binH) + 1);
+  const bins: number[][] = Array.from({ length: n }, () => []);
+  for (let i = 0; i < count; i++) {
+    const y = getCenterY(i);
+    const half = Math.max(0, getHalfSpan(i));
+    const y0 = clampInt(Math.floor((y - half) / binH), 0, n - 1);
+    const y1 = clampInt(Math.floor((y + half) / binH), 0, n - 1);
+    for (let b = y0; b <= y1; b++) bins[b].push(i);
+  }
+  return { binH, bins };
+}
+
 function resolveWallSegments(
   board: Board,
   m: Marble,
   restitution: number,
   segments: Segment[],
-  bins: SegmentBins | null
+  bins: SegmentBins | null,
+  scratch: WallResolveScratch | null = null
 ): void {
-  const candidates: number[] = [];
+  const margin = 2;
   if (bins && bins.bins?.length) {
     const h = bins.binH;
     const i0 = clampInt(Math.floor((m.y - m.r - 60) / h), 0, bins.bins.length - 1);
     const i1 = clampInt(Math.floor((m.y + m.r + 60) / h), 0, bins.bins.length - 1);
-    for (let i = i0; i <= i1; i++) {
-      for (const idx of bins.bins[i]) candidates.push(idx);
+    if (scratch && scratch.seen.length === segments.length) {
+      scratch.stamp += 1;
+      if (scratch.stamp >= 2_147_483_640) {
+        scratch.seen.fill(0);
+        scratch.stamp = 1;
+      }
+      const mark = scratch.stamp;
+      for (let i = i0; i <= i1; i++) {
+        for (const idx of bins.bins[i]) {
+          if (scratch.seen[idx] === mark) continue;
+          scratch.seen[idx] = mark;
+          const s = segments[idx];
+          if (m.y + m.r < s.yMin - margin || m.y - m.r > s.yMax + margin) continue;
+          if (m.x + m.r < s.xMin - margin || m.x - m.r > s.xMax + margin) continue;
+          resolveCircleSegment(m, s, restitution);
+        }
+      }
+    } else {
+      const uniq = new Set<number>();
+      for (let i = i0; i <= i1; i++) {
+        for (const idx of bins.bins[i]) uniq.add(idx);
+      }
+      for (const idx of uniq.values()) {
+        const s = segments[idx];
+        if (m.y + m.r < s.yMin - margin || m.y - m.r > s.yMax + margin) continue;
+        if (m.x + m.r < s.xMin - margin || m.x - m.r > s.xMax + margin) continue;
+        resolveCircleSegment(m, s, restitution);
+      }
     }
   } else {
-    for (let i = 0; i < segments.length; i++) candidates.push(i);
-  }
-
-  // Avoid doing the same segment twice when bins overlap.
-  const uniq = candidates.length > 64 ? new Set(candidates) : null;
-  const it = uniq ? uniq.values() : candidates;
-
-  for (const idx of it) {
-    const s = segments[idx];
-    if (m.y + m.r < s.yMin - 2 || m.y - m.r > s.yMax + 2) continue;
-    resolveCircleSegment(m, s, restitution);
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      if (m.y + m.r < s.yMin - margin || m.y - m.r > s.yMax + margin) continue;
+      if (m.x + m.r < s.xMin - margin || m.x - m.r > s.xMax + margin) continue;
+      resolveCircleSegment(m, s, restitution);
+    }
   }
 
   // As a safety net, keep within world bounds.
@@ -1653,15 +1998,68 @@ function resolveCircleSegment(m: Marble, s: Segment, restitution: number): void 
   }
 }
 
-function resolvePropeller(state: GameState, m: Marble, p: Propeller, restitution: number): void {
-  const t = state.t;
-  const ang = (p.phase || 0) + (p.omega || 0) * t;
-  const c = Math.cos(ang);
-  const s = Math.sin(ang);
-  const hx = (p.len / 2) * c;
-  const hy = (p.len / 2) * s;
-  const seg = makeSeg(p.x - hx, p.y - hy, p.x + hx, p.y + hy);
+function updateRuntimePropellers(
+  runtimeList: RuntimePropeller[],
+  propellers: Propeller[],
+  t: number,
+  ballR: number
+): RuntimePropeller[] {
+  if (runtimeList.length > propellers.length) {
+    runtimeList.length = propellers.length;
+  }
+  for (let i = 0; i < propellers.length; i++) {
+    const p = propellers[i];
+    const ang = (p.phase || 0) + (p.omega || 0) * t;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const hx = (p.len / 2) * c;
+    const hy = (p.len / 2) * s;
+    const x0 = p.x - hx;
+    const y0 = p.y - hy;
+    const x1 = p.x + hx;
+    const y1 = p.y + hy;
 
+    const existing = runtimeList[i];
+    if (existing) {
+      existing.p = p;
+      existing.cx = p.x;
+      existing.cy = p.y;
+      existing.boundR = p.len * 0.5 + ballR + 8;
+      setSeg(existing.seg, x0, y0, x1, y1);
+      continue;
+    }
+
+    runtimeList.push({
+      p,
+      seg: makeSeg(x0, y0, x1, y1),
+      cx: p.x,
+      cy: p.y,
+      boundR: p.len * 0.5 + ballR + 8,
+    });
+  }
+  return runtimeList;
+}
+
+function setSeg(seg: Segment, x0: number, y0: number, x1: number, y1: number): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len2 = dx * dx + dy * dy;
+  seg.x0 = x0;
+  seg.y0 = y0;
+  seg.x1 = x1;
+  seg.y1 = y1;
+  seg.dx = dx;
+  seg.dy = dy;
+  seg.len2 = Math.max(1e-9, len2);
+  seg.xMin = Math.min(x0, x1);
+  seg.xMax = Math.max(x0, x1);
+  seg.yMin = Math.min(y0, y1);
+  seg.yMax = Math.max(y0, y1);
+}
+
+function resolveRuntimePropeller(state: GameState, m: Marble, runtime: RuntimePropeller, restitution: number): void {
+  const p = runtime.p;
+  const seg = runtime.seg;
   // Find closest point on segment.
   const tt = clamp(((m.x - seg.x0) * seg.dx + (m.y - seg.y0) * seg.dy) / seg.len2, 0, 1);
   const cx = seg.x0 + seg.dx * tt;

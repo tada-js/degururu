@@ -29,6 +29,11 @@ import { validateInquiryInput, submitInquiry, showInquiryToast } from "../ui/inq
 import { playWinnerFanfare } from "../ui/result-controller.js";
 import { mountKeyboardControls } from "../ui/keyboard-controls.js";
 import { clampResultCount, selectLastFinishers } from "./ui-selectors";
+import {
+  getDataUrlMimeType,
+  isAllowedUploadImageMimeType,
+  validateUploadImageFile,
+} from "./image-upload-policy";
 import { setUiActions, setUiSnapshot } from "./ui-store";
 import type {
   InquiryField,
@@ -54,6 +59,7 @@ type UiLocalState = {
   settingsDraft: CatalogDraftItem[] | null;
   winnerCount: number;
   winnerCountWasClamped: boolean;
+  startCaption: string;
   resultState: {
     open: boolean;
     phase: "idle" | "spinning" | "single" | "summary";
@@ -101,6 +107,9 @@ const STATUS_LABEL_BY_TONE: Record<StatusTone, string> = {
   done: "결과 준비 완료",
 };
 
+// At 3x caption font, ~28 chars keeps 2-line readability on 900px world width.
+const START_CAPTION_MAX = 28;
+
 function deriveStatusTone(state: {
   mode?: string;
   winner?: unknown;
@@ -113,6 +122,10 @@ function deriveStatusTone(state: {
 }
 
 function fileToDataUrl(file: File): Promise<string> {
+  const validation = validateUploadImageFile(file);
+  if (!validation.ok) {
+    return Promise.reject(new Error(validation.message));
+  }
   return new Promise<string>((resolve, reject) => {
     const fr = new FileReader();
     fr.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
@@ -130,8 +143,16 @@ function sanitizeBallName(name: unknown, fallback: string): string {
   return value || fallback;
 }
 
+function sanitizeStartCaption(value: unknown): string {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .slice(0, START_CAPTION_MAX);
+}
+
 function isDataImageUrl(value: unknown): value is string {
-  return typeof value === "string" && value.startsWith("data:image/");
+  if (typeof value !== "string" || !value.startsWith("data:image/")) return false;
+  const mime = getDataUrlMimeType(value);
+  return isAllowedUploadImageMimeType(mime);
 }
 
 function cloneCatalogForDraft(input: unknown[]): CatalogDraftItem[] {
@@ -251,6 +272,7 @@ export function bootstrapGameApp() {
     settingsDraft: null,
     winnerCount: 1,
     winnerCountWasClamped: false,
+    startCaption: "",
     resultState: {
       open: false,
       phase: "idle",
@@ -419,6 +441,7 @@ export function bootstrapGameApp() {
     if (!uiState.resultState.items.length) return;
     if (uiState.resultState.phase !== "spinning") return;
     uiState.resultState.phase = resolveResultPhase(uiState.resultState.items);
+    playWinnerFanfare();
   }
 
   function prepareAndOpenResultReveal() {
@@ -426,8 +449,6 @@ export function bootstrapGameApp() {
     const selected = selectLastFinishers(state.finished, uiState.winnerCount, state.totalToDrop);
     const items = mapFinishedToResultItems(selected);
     openResultPresentationByCount(items);
-    if (!items.length) return;
-    playWinnerFanfare();
   }
 
   function getLiveCatalogForDraft() {
@@ -505,6 +526,7 @@ export function bootstrapGameApp() {
       winnerCount: uiState.winnerCount,
       winnerCountMax,
       winnerCountWasClamped: uiState.winnerCountWasClamped,
+      startCaption: uiState.startCaption,
       resultState: {
         open: uiState.resultState.open,
         phase: uiState.resultState.phase,
@@ -532,6 +554,7 @@ export function bootstrapGameApp() {
         locked: isBallControlLocked(),
       })),
     };
+    renderer.setStartCaption?.(uiState.startCaption);
     setUiSnapshot(nextSnapshot);
   };
 
@@ -594,6 +617,12 @@ export function bootstrapGameApp() {
       const clamped = clampResultCount(raw, max);
       uiState.winnerCount = clamped;
       uiState.winnerCountWasClamped = raw !== clamped;
+      refreshUi();
+    },
+    setStartCaption: (value) => {
+      const nextValue = sanitizeStartCaption(value);
+      if (nextValue === uiState.startCaption) return;
+      uiState.startCaption = nextValue;
       refreshUi();
     },
     openSettings: () => {
@@ -695,7 +724,15 @@ export function bootstrapGameApp() {
     setCatalogBallImage: async (ballId, file) => {
       if (!uiState.settingsOpen || isBallControlLocked()) return false;
       if (!(file instanceof File)) return false;
-      const dataUrl = await fileToDataUrl(file);
+      let dataUrl = "";
+      try {
+        dataUrl = await fileToDataUrl(file);
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : "이미지 업로드에 실패했습니다.";
+        showInquiryToast(message, "error", 2200);
+        refreshUi();
+        return false;
+      }
       if (!isDataImageUrl(dataUrl)) return false;
       const draft = ensureSettingsDraft();
       const idx = draft.findIndex((ball) => ball.id === ballId);

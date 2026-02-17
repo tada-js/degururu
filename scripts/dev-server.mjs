@@ -15,10 +15,31 @@ const port = Number(process.env.PORT || 5173);
 const inquiryToEmail = String(process.env.INQUIRY_TO_EMAIL || "").trim();
 const inquiryFromEmail = String(process.env.INQUIRY_FROM_EMAIL || "onboarding@resend.dev").trim();
 const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const inquiryAllowedOrigins = String(process.env.INQUIRY_ALLOWED_ORIGINS || "").trim();
+const PAGE_CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-eval'",
+  "connect-src 'self' ws: wss:",
+].join("; ");
+const SEC_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+});
 const handleInquiry = createInquiryApiHandler({
   toEmail: inquiryToEmail,
   fromEmail: inquiryFromEmail,
   resendApiKey,
+  allowedOrigins: inquiryAllowedOrigins,
 });
 
 const mime = new Map([
@@ -92,9 +113,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const ext = path.extname(abs).toLowerCase();
+    const contentType = mime.get(ext) || "application/octet-stream";
+    const isHtml = ext === ".html";
     res.writeHead(200, {
-      "Content-Type": mime.get(ext) || "application/octet-stream",
-      "Cache-Control": "no-store"
+      "Content-Type": contentType,
+      "Cache-Control": "no-store",
+      ...(isHtml ? { "Content-Security-Policy": PAGE_CSP } : {}),
+      ...SEC_HEADERS,
     });
     res.end(buf);
   });

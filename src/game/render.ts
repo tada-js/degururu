@@ -21,6 +21,7 @@ export type Renderer = {
   getViewState: () => RendererViewState;
   setCameraOverrideY: (y: number | null | undefined) => void;
   clearCameraOverride: () => void;
+  setStartCaption: (value: string) => void;
 };
 
 type InternalViewState = RendererViewState & {
@@ -70,10 +71,95 @@ type ParticleFx = {
   color: [number, number, number];
 };
 
+type CaptionLayout = {
+  text: string;
+  lines: string[];
+  width: number;
+  height: number;
+  maxTextWidth: number;
+};
+
+type RenderQualityLevel = "high" | "medium" | "low";
+
+type RenderQualityProfile = {
+  level: RenderQualityLevel;
+  pixelRatioFloor: number;
+  pixelRatioCap: number;
+  showAnimatedHaze: boolean;
+  showGridOverlay: boolean;
+  showTrail: boolean;
+  showParticles: boolean;
+  detailedPegs: boolean;
+  detailedMarbleShell: boolean;
+  nameLabelMaxActive: number;
+  gridAlphaBase: number;
+};
+
+const RENDER_QUALITY_PROFILES: Record<RenderQualityLevel, RenderQualityProfile> = {
+  high: {
+    level: "high",
+    pixelRatioFloor: 1,
+    pixelRatioCap: 1.45,
+    showAnimatedHaze: true,
+    showGridOverlay: true,
+    showTrail: false,
+    showParticles: false,
+    detailedPegs: true,
+    detailedMarbleShell: true,
+    nameLabelMaxActive: 40,
+    gridAlphaBase: 0.45,
+  },
+  medium: {
+    level: "medium",
+    pixelRatioFloor: 0.85,
+    pixelRatioCap: 1.08,
+    showAnimatedHaze: true,
+    showGridOverlay: true,
+    showTrail: false,
+    showParticles: false,
+    detailedPegs: false,
+    detailedMarbleShell: false,
+    nameLabelMaxActive: 24,
+    gridAlphaBase: 0.3,
+  },
+  low: {
+    level: "low",
+    pixelRatioFloor: 0.72,
+    pixelRatioCap: 0.9,
+    showAnimatedHaze: false,
+    showGridOverlay: false,
+    showTrail: false,
+    showParticles: false,
+    detailedPegs: false,
+    detailedMarbleShell: false,
+    nameLabelMaxActive: 0,
+    gridAlphaBase: 0,
+  },
+};
+
+const IMPACT_RING_CAP_BY_QUALITY: Record<RenderQualityLevel, number> = {
+  high: 48,
+  medium: 32,
+  low: 20,
+};
+
+function pickRenderQualityProfile(cssW: number, cssH: number): RenderQualityProfile {
+  const area = Math.max(1, cssW * cssH);
+  if (area >= 2_100_000) return RENDER_QUALITY_PROFILES.low;
+  if (area >= 1_350_000) return RENDER_QUALITY_PROFILES.medium;
+  return RENDER_QUALITY_PROFILES.high;
+}
+
 function getFixedEntities(board: Board): FixedEntity[] | null {
   if (board.roulette?.entities?.length) return board.roulette.entities;
   if (board.zigzag?.entities?.length) return board.zigzag.entities;
   return null;
+}
+
+function sanitizeCaptionValue(value: string, maxLength = 28): string {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .slice(0, maxLength);
 }
 
 export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Board }): Renderer {
@@ -83,6 +169,10 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
 
   const dpr = (): number => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const bootMs = performance.now();
+  let renderCssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
+  let renderCssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
+  let renderPixelRatio = 1;
+  let renderQuality = pickRenderQualityProfile(renderCssW, renderCssH);
   const hashStr = (s: string): number => {
     // Small deterministic hash for stable per-entity color offsets.
     let h = 2166136261 >>> 0;
@@ -121,6 +211,8 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   const slotRipples: RingFx[] = [];
   let seenFinishedCount = 0;
   let lastCatalogRef: BallCatalogItem[] | null = null;
+  let startCaption = "";
+  let startCaptionLayout: CaptionLayout | null = null;
 
   function clearRenderFxState() {
     trailsByMarble.clear();
@@ -146,6 +238,9 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   function resizeToFit(): void {
     const cssW = canvas.clientWidth || canvas.parentElement?.clientWidth || board.worldW;
     const cssH = canvas.clientHeight || canvas.parentElement?.clientHeight || board.worldH;
+    renderCssW = cssW;
+    renderCssH = cssH;
+    renderQuality = pickRenderQualityProfile(cssW, cssH);
     // For tall boards, fit width and use a scrolling camera for Y.
     const s = Math.min(cssW / board.worldW, 1.6);
     view.scale = s;
@@ -153,9 +248,13 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     view.oy = 0;
     view.viewHWorld = cssH / s;
 
-    const r = dpr();
-    canvas.width = Math.floor(cssW * r);
-    canvas.height = Math.floor(cssH * r);
+    const nativeDpr = dpr();
+    const capped = Math.min(nativeDpr, renderQuality.pixelRatioCap);
+    const floored = Math.max(renderQuality.pixelRatioFloor, capped);
+    renderPixelRatio = floored;
+    const r = renderPixelRatio;
+    canvas.width = Math.max(1, Math.floor(cssW * r));
+    canvas.height = Math.max(1, Math.floor(cssH * r));
     ctx.setTransform(r, 0, 0, r, 0, 0);
   }
 
@@ -283,18 +382,18 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     const tt = (Number.isFinite(tSec) ? tSec : 0) + rt * 0.85;
 
     // Background (optimized): cached base + a couple of animated haze layers + a scrolling neon grid pattern.
-    const cssW = canvas.clientWidth || board.worldW;
-    const cssH = canvas.clientHeight || board.worldH;
+    const cssW = renderCssW || board.worldW;
+    const cssH = renderCssH || board.worldH;
     ensureBgCache(cssW, cssH);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, cssW, cssH);
     if (bgCache.base) ctx.drawImage(bgCache.base, 0, 0);
 
     ctx.save();
     ctx.globalCompositeOperation = "screen";
 
     // Animated neon haze (2 gradients only).
-    {
+    if (renderQuality.showAnimatedHaze) {
       const p0 = tt * 0.28;
       const p1 = tt * 0.22 + 1.7;
       const x0 = cssW * (0.30 + 0.08 * Math.sin(p0));
@@ -316,11 +415,11 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     }
 
     // Scrolling neon grid overlay (pattern fill).
-    if (bgCache.gridPattern) {
+    if (renderQuality.showGridOverlay && bgCache.gridPattern) {
       const dx = -(tt * 22) % 128;
       const dy = (tt * 34) % 128;
       ctx.save();
-      ctx.globalAlpha = 0.45 + 0.10 * Math.sin(tt * 0.6);
+      ctx.globalAlpha = renderQuality.gridAlphaBase + 0.1 * Math.sin(tt * 0.6);
       ctx.translate(dx, dy);
       ctx.fillStyle = bgCache.gridPattern;
       ctx.fillRect(-128, -128, cssW + 256, cssH + 256);
@@ -336,11 +435,19 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     for (const m of state.marbles) {
       if (!m.done) activeCount += 1;
     }
-    const heavyLoad = activeCount > 56;
-    const trailMaxPoints = activeCount > 60 ? 4 : 6;
+    const enableTrail = renderQuality.showTrail;
+    if (!enableTrail && trailsByMarble.size) trailsByMarble.clear();
+    const heavyLoad = activeCount > 56 || renderQuality.level !== "high";
+    let trailMaxPoints = 6;
+    if (activeCount > 60) trailMaxPoints = 4;
+    if (renderQuality.level === "medium") trailMaxPoints = Math.min(trailMaxPoints, 4);
+    if (renderQuality.level === "low") trailMaxPoints = Math.min(trailMaxPoints, 3);
     const impactCooldownMs = heavyLoad ? 140 : 95;
     const impactDotThreshold = heavyLoad ? 0.34 : 0.52;
     const impactDeltaVThreshold = heavyLoad ? 320 : 220;
+    let impactIntensityScale = 1;
+    if (renderQuality.level === "medium") impactIntensityScale = 0.8;
+    if (renderQuality.level === "low") impactIntensityScale = 0.62;
 
     for (const m of state.marbles) {
       if (m.done) continue;
@@ -353,7 +460,7 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
           const dotNorm = (prev.vx * m.vx + prev.vy * m.vy) / Math.max(1e-6, prevSpeed * speed);
           const deltaV = Math.hypot(m.vx - prev.vx, m.vy - prev.vy);
           if ((dotNorm < impactDotThreshold || deltaV > impactDeltaVThreshold) && nowMs - prev.lastImpactMs > impactCooldownMs) {
-            spawnImpactFx(m.x, m.y, nowMs, heavyLoad ? 0.55 : 1);
+            spawnImpactFx(m.x, m.y, nowMs, (heavyLoad ? 0.55 : 1) * impactIntensityScale);
             prev.lastImpactMs = nowMs;
           }
         }
@@ -364,25 +471,29 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
         lastImpactMs: prev?.lastImpactMs || 0,
       });
 
-      let trail = trailsByMarble.get(m.id);
-      if (!trail) {
-        trail = [];
-        trailsByMarble.set(m.id, trail);
+      if (enableTrail) {
+        let trail = trailsByMarble.get(m.id);
+        if (!trail) {
+          trail = [];
+          trailsByMarble.set(m.id, trail);
+        }
+        const last = trail[trail.length - 1];
+        const dx = last ? m.x - last.x : 999;
+        const dy = last ? m.y - last.y : 999;
+        if (!last || dx * dx + dy * dy >= 16 || nowMs - last.atMs > 110) {
+          trail.push({ x: m.x, y: m.y, atMs: nowMs });
+        }
+        while (trail.length > trailMaxPoints) trail.shift();
       }
-      const last = trail[trail.length - 1];
-      const dx = last ? m.x - last.x : 999;
-      const dy = last ? m.y - last.y : 999;
-      if (!last || dx * dx + dy * dy >= 16 || nowMs - last.atMs > 110) {
-        trail.push({ x: m.x, y: m.y, atMs: nowMs });
-      }
-      while (trail.length > trailMaxPoints) trail.shift();
     }
 
     for (const key of motionByMarble.keys()) {
       if (!liveIds.has(key)) motionByMarble.delete(key);
     }
-    for (const key of trailsByMarble.keys()) {
-      if (!liveIds.has(key)) trailsByMarble.delete(key);
+    if (enableTrail) {
+      for (const key of trailsByMarble.keys()) {
+        if (!liveIds.has(key)) trailsByMarble.delete(key);
+      }
     }
   }
 
@@ -424,49 +535,23 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     ];
     const baseIndex = Math.abs(Math.floor(x * 0.017 + y * 0.013 + nowMs * 0.0009)) % neonPalette.length;
     const ringColor = neonPalette[baseIndex];
-    const particleColor = neonPalette[(baseIndex + 1) % neonPalette.length];
+    const strength = clamp(intensity, 0.4, 1);
 
     impactRings.push({
       x,
       y,
       startMs: nowMs,
-      durationMs: 190,
-      radiusFrom: 8,
-      radiusTo: 42,
+      durationMs: lerp(130, 170, strength),
+      radiusFrom: lerp(6, 9, strength),
+      radiusTo: lerp(24, 32, strength),
       color: ringColor,
     });
-    if (intensity >= 0.72) {
-      impactRings.push({
-        x,
-        y,
-        startMs: nowMs,
-        durationMs: 160,
-        radiusFrom: 3,
-        radiusTo: 20,
-        color: particleColor,
-      });
-    }
-    if (impactRings.length > 90) impactRings.splice(0, impactRings.length - 90);
-
-    const particleCount = intensity >= 0.72 ? 6 : 3;
-    for (let i = 0; i < particleCount; i++) {
-      const angle = ((i + 1) * Math.PI * 0.5) + ((x * 0.013 + y * 0.021 + nowMs * 0.0027) % (Math.PI * 2));
-      const speed = 92 + i * 28;
-      impactParticles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 20,
-        startMs: nowMs,
-        durationMs: 220,
-        color: particleColor,
-      });
-    }
-    const particleCap = intensity >= 0.72 ? 220 : 140;
-    if (impactParticles.length > particleCap) impactParticles.splice(0, impactParticles.length - particleCap);
+    const ringCap = IMPACT_RING_CAP_BY_QUALITY[renderQuality.level];
+    if (impactRings.length > ringCap) impactRings.splice(0, impactRings.length - ringCap);
   }
 
   function drawTrailFx(nowMs: number): void {
+    if (!renderQuality.showTrail) return;
     ctx.save();
     ctx.globalCompositeOperation = "screen";
     for (const trail of trailsByMarble.values()) {
@@ -501,9 +586,9 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       const radius = lerp(fx.radiusFrom, fx.radiusTo, eased);
       const alpha = Math.max(0, 1 - progress);
       ctx.strokeStyle = `rgba(${fx.color[0]},${fx.color[1]},${fx.color[2]},${(baseAlpha * alpha).toFixed(3)})`;
-      ctx.lineWidth = lineWidth * (1 + (1 - progress) * 0.25);
+      ctx.lineWidth = lineWidth * (1 + (1 - progress) * 0.18);
       ctx.shadowColor = `rgba(${fx.color[0]},${fx.color[1]},${fx.color[2]},${(0.55 * alpha).toFixed(3)})`;
-      ctx.shadowBlur = 12 + (1 - progress) * 10;
+      ctx.shadowBlur = 6 + (1 - progress) * 4;
       ctx.beginPath();
       ctx.arc(fx.x, fx.y, radius, 0, Math.PI * 2);
       ctx.stroke();
@@ -512,6 +597,10 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
   }
 
   function drawParticleFx(nowMs: number): void {
+    if (!renderQuality.showParticles) {
+      if (impactParticles.length) impactParticles.length = 0;
+      return;
+    }
     ctx.save();
     ctx.globalCompositeOperation = "screen";
     for (let i = impactParticles.length - 1; i >= 0; i--) {
@@ -553,6 +642,141 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       ctx.beginPath();
       ctx.arc(m.x, m.y, m.r + 7 + pulse * 2.5, 0, Math.PI * 2);
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function trimLineToWidth(line: string, maxWidth: number): string {
+    const glyphs = Array.from(line);
+    let next = line;
+    while (next.length && ctx.measureText(`${next}…`).width > maxWidth) {
+      glyphs.pop();
+      next = glyphs.join("");
+    }
+    return next ? `${next}…` : "…";
+  }
+
+  function getCaptionBoundsAtY(y: number): { left: number; right: number } {
+    if (board.layout === "zigzag" && typeof board.zigzag?.spawnBoundsAtY === "function") {
+      const bounds = board.zigzag.spawnBoundsAtY(y);
+      return { left: bounds.left, right: bounds.right };
+    }
+    if (board.layout === "roulette" && typeof board.roulette?.spawnBoundsAtY === "function") {
+      const bounds = board.roulette.spawnBoundsAtY(y);
+      return { left: bounds.left, right: bounds.right };
+    }
+    if (board.corridor) {
+      const bounds = corridorAt(board, y);
+      return { left: bounds.left, right: bounds.right };
+    }
+    return { left: 16, right: board.worldW - 16 };
+  }
+
+  function buildStartCaptionLayout(text: string, maxTextWidth: number): CaptionLayout {
+    const fontSize = 42;
+    const lineHeight = 48;
+    ctx.save();
+    ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+
+    const glyphs = Array.from(text);
+    const lines: string[] = [];
+    let current = "";
+    let consumed = 0;
+    for (const glyph of glyphs) {
+      const candidate = `${current}${glyph}`;
+      if (current && ctx.measureText(candidate).width > maxTextWidth) {
+        lines.push(current);
+        current = glyph;
+        if (lines.length >= 2) break;
+      } else {
+        current = candidate;
+      }
+      consumed += 1;
+    }
+    if (lines.length < 2 && current) {
+      lines.push(current);
+    }
+    while (lines.length < 1) lines.push("");
+
+    if (consumed < glyphs.length) {
+      const lastIndex = lines.length - 1;
+      lines[lastIndex] = trimLineToWidth(lines[lastIndex], maxTextWidth);
+    }
+
+    let width = 0;
+    for (const line of lines) {
+      width = Math.max(width, ctx.measureText(line).width);
+    }
+    ctx.restore();
+
+    return {
+      text,
+      lines,
+      width: Math.ceil(Math.min(maxTextWidth, width)),
+      height: lineHeight * lines.length,
+      maxTextWidth,
+    };
+  }
+
+  function getLayoutSpawnY(): number {
+    if (board.layout === "zigzag" && typeof board.zigzag?.spawnY === "number") return board.zigzag.spawnY;
+    if (board.layout === "roulette" && typeof board.roulette?.spawnY === "number") return board.roulette.spawnY;
+    return 70;
+  }
+
+  function drawStartCaption(state: GameState): void {
+    const text = startCaption;
+    if (!text) return;
+
+    const spawnY = getLayoutSpawnY();
+    const anchorY = spawnY + 58;
+    const bounds = getCaptionBoundsAtY(anchorY);
+    const safeInset = 12;
+    const safeLeft = bounds.left + safeInset;
+    const safeRight = bounds.right - safeInset;
+    const availableWidth = Math.max(140, safeRight - safeLeft);
+    const maxTextWidth = Math.max(110, availableWidth - 34);
+
+    if (
+      !startCaptionLayout ||
+      startCaptionLayout.text !== text ||
+      Math.abs(startCaptionLayout.maxTextWidth - maxTextWidth) > 0.5
+    ) {
+      startCaptionLayout = buildStartCaptionLayout(text, maxTextWidth);
+    }
+    const layout = startCaptionLayout;
+    if (!layout) return;
+
+    const rawBubbleWidth = Math.max(180, layout.width + 34);
+    const bubbleWidth = clamp(rawBubbleWidth, 120, availableWidth);
+    const bubbleHeight = layout.height + 22;
+    const anchorX = Number.isFinite(state.dropX) ? state.dropX : board.worldW * 0.5;
+    const clampedAnchorX = clamp(anchorX, safeLeft + bubbleWidth / 2, safeRight - bubbleWidth / 2);
+    const bubbleY = clamp(anchorY, 22 + bubbleHeight * 0.5, board.worldH - 22 - bubbleHeight * 0.5);
+    const bubbleX = clampedAnchorX - bubbleWidth / 2;
+
+    ctx.save();
+    ctx.font = "900 42px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "rgba(4, 10, 22, 0.66)";
+    ctx.strokeStyle = "rgba(68, 255, 233, 0.76)";
+    ctx.shadowColor = "rgba(68,255,233,0.55)";
+    ctx.shadowBlur = 24;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, bubbleX, bubbleY - bubbleHeight / 2, bubbleWidth, bubbleHeight, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(172,255,244,0.98)";
+    ctx.shadowColor = "rgba(68,255,233,0.9)";
+    ctx.shadowBlur = 18;
+    const lineHeight = 48;
+    const textStartY = bubbleY - ((layout.lines.length - 1) * lineHeight) / 2;
+    for (let index = 0; index < layout.lines.length; index++) {
+      ctx.fillText(layout.lines[index], bubbleX + bubbleWidth / 2, textStartY + index * lineHeight);
     }
     ctx.restore();
   }
@@ -599,22 +823,24 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     ctx.translate(0, -view.cameraY);
 
     // Board frame.
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.55)";
-    ctx.shadowBlur = 30;
-    ctx.shadowOffsetY = 18;
-    ctx.fillStyle = "rgba(0,0,0,0.22)";
-    roundRect(ctx, 8, 8, board.worldW - 16, board.worldH - 16, 26);
-    ctx.fill();
-    ctx.restore();
+    if (renderQuality.level !== "low") {
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.55)";
+      ctx.shadowBlur = 30;
+      ctx.shadowOffsetY = 18;
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      roundRect(ctx, 8, 8, board.worldW - 16, board.worldH - 16, 26);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Chrome rim + inner glass.
     roundRect(ctx, 10, 10, board.worldW - 20, board.worldH - 20, 26);
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = renderQuality.level === "low" ? 7 : 10;
+    ctx.strokeStyle = "rgba(255,255,255,0.11)";
     ctx.stroke();
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = "rgba(69,243,195,0.18)";
+    ctx.lineWidth = renderQuality.level === "low" ? 3 : 5;
+    ctx.strokeStyle = "rgba(69,243,195,0.16)";
     ctx.stroke();
     ctx.fillStyle = "rgba(255,255,255,0.018)";
     ctx.fill();
@@ -829,41 +1055,58 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       for (let rr = r0; rr <= r1; rr++) {
         const row = board.pegRows[rr];
         for (const p of row) {
-          // Bumper: chrome rim + neon core.
           const r = p.r;
-          ctx.shadowColor = "rgba(69,243,195,0.25)";
-          ctx.shadowBlur = 10;
-          const rim = ctx.createRadialGradient(p.x - r * 0.25, p.y - r * 0.35, 1, p.x, p.y, r * 1.4);
-          rim.addColorStop(0, "rgba(255,255,255,0.80)");
-          rim.addColorStop(1, "rgba(0,0,0,0.55)");
-          ctx.fillStyle = rim;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
-          ctx.fill();
+          if (renderQuality.detailedPegs) {
+            // Bumper: chrome rim + neon core.
+            ctx.shadowColor = "rgba(69,243,195,0.25)";
+            ctx.shadowBlur = 10;
+            const rim = ctx.createRadialGradient(p.x - r * 0.25, p.y - r * 0.35, 1, p.x, p.y, r * 1.4);
+            rim.addColorStop(0, "rgba(255,255,255,0.80)");
+            rim.addColorStop(1, "rgba(0,0,0,0.55)");
+            ctx.fillStyle = rim;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
+            ctx.fill();
 
-          const core = ctx.createRadialGradient(p.x - r * 0.2, p.y - r * 0.2, 2, p.x, p.y, r);
-          core.addColorStop(0, "rgba(255,255,255,0.20)");
-          core.addColorStop(1, "rgba(69,243,195,0.18)");
-          ctx.fillStyle = core;
+            const core = ctx.createRadialGradient(p.x - r * 0.2, p.y - r * 0.2, 2, p.x, p.y, r);
+            core.addColorStop(0, "rgba(255,255,255,0.20)");
+            core.addColorStop(1, "rgba(69,243,195,0.18)");
+            ctx.fillStyle = core;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            continue;
+          }
+
+          // Lightweight peg style for wide screens / large render areas.
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = "rgba(170, 240, 255, 0.28)";
+          ctx.fillStyle = "rgba(92, 210, 238, 0.16)";
           ctx.beginPath();
-          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, r + 2, 0, Math.PI * 2);
           ctx.fill();
+          ctx.stroke();
         }
       }
     }
 
     // Drop guide removed (no click-to-set drop position).
+    drawStartCaption(state);
 
     // FX (behind marbles): trail + slot arrival ripple.
     drawTrailFx(nowMs);
-    drawRingFx(slotRipples, nowMs, 2.2, 0.38);
+    const slotRippleLineWidth = renderQuality.level === "low" ? 1.5 : 2.2;
+    const slotRippleAlpha = renderQuality.level === "low" ? 0.24 : 0.38;
+    drawRingFx(slotRipples, nowMs, slotRippleLineWidth, slotRippleAlpha);
 
     // Marbles (pending + active).
     let activeCount = 0;
     for (const marble of state.marbles) {
       if (!marble.done) activeCount += 1;
     }
-    const drawNameLabels = activeCount <= 40;
+    const drawNameLabels =
+      renderQuality.nameLabelMaxActive > 0 && activeCount <= renderQuality.nameLabelMaxActive;
 
     for (const m of [...state.pending, ...state.marbles]) {
       // Hide finished marbles to avoid clutter when 100+ arrive.
@@ -875,20 +1118,31 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       ctx.save();
       ctx.translate(m.x, m.y);
 
-      // Outer rim.
-      const rim = ctx.createRadialGradient(-r * 0.2, -r * 0.4, r * 0.2, 0, 0, r * 1.2);
-      rim.addColorStop(0, "rgba(255,255,255,0.90)");
-      rim.addColorStop(1, "rgba(0,0,0,0.35)");
-      ctx.fillStyle = rim;
-      ctx.beginPath();
-      ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
-      ctx.fill();
+      if (renderQuality.detailedMarbleShell) {
+        // Outer rim.
+        const rim = ctx.createRadialGradient(-r * 0.2, -r * 0.4, r * 0.2, 0, 0, r * 1.2);
+        rim.addColorStop(0, "rgba(255,255,255,0.90)");
+        rim.addColorStop(1, "rgba(0,0,0,0.35)");
+        ctx.fillStyle = rim;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Face.
-      ctx.fillStyle = meta?.tint || "rgba(255,255,255,0.10)";
-      ctx.beginPath();
-      ctx.arc(0, 0, r + 1.2, 0, Math.PI * 2);
-      ctx.fill();
+        // Face.
+        ctx.fillStyle = meta?.tint || "rgba(255,255,255,0.10)";
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Lightweight shell for performance-sensitive sizes.
+        ctx.fillStyle = meta?.tint || "rgba(255,255,255,0.12)";
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(255,255,255,0.36)";
+        ctx.stroke();
+      }
 
       ctx.save();
       ctx.beginPath();
@@ -904,14 +1158,16 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
       }
       ctx.restore();
 
-      // Glint.
-      const gl = ctx.createRadialGradient(-r * 0.35, -r * 0.35, 1, -r * 0.35, -r * 0.35, r * 1.1);
-      gl.addColorStop(0, "rgba(255,255,255,0.65)");
-      gl.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = gl;
-      ctx.beginPath();
-      ctx.arc(0, 0, r + 2, 0, Math.PI * 2);
-      ctx.fill();
+      if (renderQuality.detailedMarbleShell) {
+        // Glint.
+        const gl = ctx.createRadialGradient(-r * 0.35, -r * 0.35, 1, -r * 0.35, -r * 0.35, r * 1.1);
+        gl.addColorStop(0, "rgba(255,255,255,0.65)");
+        gl.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = gl;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // Name label above the ball (during play).
       if (drawNameLabels && state.mode === "playing" && meta?.name) {
@@ -953,7 +1209,9 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     }
 
     // FX (above marbles): impact pulses/particles + last few candidate highlight.
-    drawRingFx(impactRings, nowMs, 2.9, 0.72);
+    const impactLineWidth = renderQuality.level === "low" ? 1.4 : 1.8;
+    const impactAlpha = renderQuality.level === "low" ? 0.34 : 0.42;
+    drawRingFx(impactRings, nowMs, impactLineWidth, impactAlpha);
     drawParticleFx(nowMs);
     drawLastFewHighlight(state, nowMs);
 
@@ -977,6 +1235,11 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
     },
     clearCameraOverride: (): void => {
       view.cameraOverrideY = null;
+    },
+    setStartCaption: (value: string): void => {
+      const next = sanitizeCaptionValue(value, 28);
+      startCaption = next;
+      startCaptionLayout = null;
     }
   };
 }

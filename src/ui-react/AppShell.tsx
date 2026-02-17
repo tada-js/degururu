@@ -14,6 +14,7 @@ import {
   type RequiredInquiryField,
   type UiActions,
 } from "../app/ui-store";
+import { UPLOAD_IMAGE_ACCEPT } from "../app/image-upload-policy";
 import { Button, IconButton } from "./components/Button";
 import { GameCanvasStage } from "./components/GameCanvasStage";
 import { LeftPanel } from "./components/LeftPanel";
@@ -271,11 +272,13 @@ export function AppShell() {
             winnerCount={ui.winnerCount}
             winnerCountMax={ui.winnerCountMax}
             winnerCountWasClamped={ui.winnerCountWasClamped}
+            startCaption={ui.startCaption}
             balls={ui.balls}
             onOpenSettings={() => runAction("openSettings")}
             onOpenResult={() => runAction("openResultModal")}
             onToggleViewLock={(isOn) => runAction("toggleViewLock", isOn)}
             onSetWinnerCount={(nextValue) => runAction("setWinnerCount", nextValue)}
+            onSetStartCaption={(value) => runAction("setStartCaption", value)}
             onAdjustBallCount={(ballId, delta) => runAction("adjustBallCount", ballId, delta)}
             onSetBallCount={(ballId, nextValue) => runAction("setBallCount", ballId, nextValue)}
           />
@@ -404,7 +407,7 @@ export function AppShell() {
                         id={fileInputId}
                         className="fileRow__input"
                         type="file"
-                        accept="image/*"
+                        accept={UPLOAD_IMAGE_ACCEPT}
                         disabled={catalogLocked}
                         onClick={() => {
                           filePickerActiveRef.current = true;

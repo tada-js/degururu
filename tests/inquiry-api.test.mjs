@@ -6,7 +6,10 @@ import { createInquiryApiHandler } from "../scripts/inquiry-api.mjs";
 function makeReq(payload, headers = {}) {
   const body = typeof payload === "string" ? payload : JSON.stringify(payload || {});
   const req = Readable.from([body]);
-  req.headers = headers;
+  req.headers = {
+    host: "127.0.0.1:5173",
+    ...headers,
+  };
   req.socket = { remoteAddress: "127.0.0.1" };
   req.method = "POST";
   req.url = "/api/inquiry";
@@ -72,4 +75,85 @@ test("inquiry api sends mail for a valid request", async () => {
   assert.equal(res.data.status, 200);
   assert.equal(payload.ok, true);
   assert.equal(sent.length, 1);
+});
+
+test("inquiry api rejects disallowed origin", async () => {
+  const handler = createInquiryApiHandler({
+    toEmail: "receiver@example.com",
+    fromEmail: "sender@example.com",
+    resendApiKey: "re_test_key",
+    fetchImpl: async () => ({ ok: true, text: async () => "ok" }),
+  });
+  const req = makeReq(
+    {
+      name: "테스터",
+      email: "tester@example.com",
+      subject: "문의 제목",
+      message: "문의 본문은 최소 열 글자 이상입니다.",
+      website: "",
+      openedAt: Date.now() - 2500,
+    },
+    {
+      origin: "https://evil.example",
+      "user-agent": "node-test",
+    }
+  );
+  const res = makeRes();
+
+  await handler(req, res);
+  const payload = JSON.parse(res.data.body);
+
+  assert.equal(res.data.status, 403);
+  assert.equal(payload.ok, false);
+});
+
+test("inquiry api rate limits repeated requests from same client fingerprint", async () => {
+  const handler = createInquiryApiHandler({
+    toEmail: "receiver@example.com",
+    fromEmail: "sender@example.com",
+    resendApiKey: "re_test_key",
+    fetchImpl: async () => ({ ok: true, text: async () => "ok" }),
+    rateLimitMax: 2,
+    rateLimitGlobalMax: 10,
+    rateLimitWindowMs: 10 * 60 * 1000,
+  });
+
+  const payload = {
+    name: "테스터",
+    email: "tester@example.com",
+    subject: "문의 제목",
+    message: "문의 본문은 최소 열 글자 이상입니다.",
+    website: "",
+    openedAt: Date.now() - 2500,
+  };
+
+  const firstRes = makeRes();
+  await handler(
+    makeReq(payload, {
+      origin: "http://127.0.0.1:5173",
+      "user-agent": "node-test",
+    }),
+    firstRes
+  );
+  assert.equal(firstRes.data.status, 200);
+
+  const secondRes = makeRes();
+  await handler(
+    makeReq(payload, {
+      origin: "http://127.0.0.1:5173",
+      "user-agent": "node-test",
+    }),
+    secondRes
+  );
+  assert.equal(secondRes.data.status, 200);
+
+  const thirdRes = makeRes();
+  await handler(
+    makeReq(payload, {
+      origin: "http://127.0.0.1:5173",
+      "user-agent": "node-test",
+    }),
+    thirdRes
+  );
+  assert.equal(thirdRes.data.status, 429);
 });

@@ -57,3 +57,36 @@ test("zigzag layout reduces straight falls (lateral motion) and propeller mixes"
   assert.ok(maxDev > board.worldW * 0.12, `expected lateral deviation; got ${maxDev.toFixed(1)}px`);
   assert.ok(maxX - minX > board.worldW * 0.20, `expected horizontal spread; got ${(maxX - minX).toFixed(1)}px`);
 });
+
+test("zigzag marbles stay inside playable bounds under congestion", () => {
+  const board = makeBoard({ layout: "zigzag", slotCount: 8, heightMultiplier: 1, corridorEnabled: false, elementScale: 0.85 });
+  const ballsCatalog = [
+    { id: "dog", name: "강아지", imageDataUrl: "data:image/svg+xml;utf8,<svg/>", tint: "#fff" }
+  ];
+  const state = makeGameState({ seed: 17, board, ballsCatalog });
+  const boundsAtY = board.zigzag?.spawnBoundsAtY;
+  assert.ok(boundsAtY, "expected zigzag bounds function");
+
+  setBallCount(state, "dog", 48);
+  startGame(state);
+  setDropX(state, board.worldW / 2);
+  dropAll(state);
+
+  const finishY = board.worldH - board.slotH;
+  for (let i = 0; i < 45 * 60 && state.finished.length < state.totalToDrop; i++) {
+    step(state, 1 / 60);
+    for (const m of state.marbles) {
+      if (m.done) continue;
+      if (m.y + m.r >= finishY) continue;
+      const { left, right } = boundsAtY(m.y);
+      assert.ok(
+        m.x >= left + m.r - 2.5,
+        `marble escaped left bound at t=${state.t.toFixed(3)}: x=${m.x.toFixed(2)}, left=${(left + m.r).toFixed(2)}`
+      );
+      assert.ok(
+        m.x <= right - m.r + 2.5,
+        `marble escaped right bound at t=${state.t.toFixed(3)}: x=${m.x.toFixed(2)}, right=${(right - m.r).toFixed(2)}`
+      );
+    }
+  }
+});

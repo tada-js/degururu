@@ -2,6 +2,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 import { createInquiryApiHandler } from "./scripts/inquiry-api.mjs";
 
+const DEV_SEC_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+});
+
 /**
  * Vite middleware plugin to keep the existing inquiry API behavior
  * while moving frontend runtime to Vite + React.
@@ -15,6 +22,7 @@ function inquiryApiPlugin() {
         toEmail: String(env.INQUIRY_TO_EMAIL || process.env.INQUIRY_TO_EMAIL || "").trim(),
         fromEmail: String(env.INQUIRY_FROM_EMAIL || process.env.INQUIRY_FROM_EMAIL || "onboarding@resend.dev").trim(),
         resendApiKey: String(env.RESEND_API_KEY || process.env.RESEND_API_KEY || "").trim(),
+        allowedOrigins: String(env.INQUIRY_ALLOWED_ORIGINS || process.env.INQUIRY_ALLOWED_ORIGINS || "").trim(),
       });
 
       server.middlewares.use(async (req, res, next) => {
@@ -37,10 +45,12 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    headers: DEV_SEC_HEADERS,
   },
   preview: {
     host: "0.0.0.0",
     port: 4173,
+    headers: DEV_SEC_HEADERS,
   },
   build: {
     outDir: "dist-vite",
