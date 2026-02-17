@@ -47,7 +47,6 @@ export type InquirySubmitResult =
 export type UiSnapshot = {
   startDisabled: boolean;
   startLabel: string;
-  quickFinishPending: boolean;
   pauseDisabled: boolean;
   pauseLabel: string;
   pausePressed: boolean;
@@ -79,7 +78,6 @@ export type UiSnapshot = {
 export type UiActions = {
   handleStartClick: () => void;
   prepareRestartForCountdown: () => void;
-  completeRunNow: () => boolean;
   stopRunNow: () => boolean;
   togglePause: () => void;
   setWinnerCount: (nextValue: number) => void;
@@ -116,7 +114,6 @@ export type UiActions = {
 const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
   startDisabled: true,
   startLabel: "게임 시작",
-  quickFinishPending: false,
   pauseDisabled: true,
   pauseLabel: "일시정지",
   pausePressed: false,
@@ -164,7 +161,6 @@ let snapshot: UiSnapshot = DEFAULT_SNAPSHOT;
 let actions: UiActions = {
   handleStartClick: NOOP_VOID,
   prepareRestartForCountdown: NOOP_VOID,
-  completeRunNow: NOOP_FALSE,
   stopRunNow: NOOP_FALSE,
   togglePause: NOOP_VOID,
   setWinnerCount: NOOP_VOID,
@@ -207,7 +203,6 @@ function isEqualSnapshot(a: UiSnapshot, b: UiSnapshot) {
   if (
     a.startDisabled !== b.startDisabled ||
     a.startLabel !== b.startLabel ||
-    a.quickFinishPending !== b.quickFinishPending ||
     a.pauseDisabled !== b.pauseDisabled ||
     a.pauseLabel !== b.pauseLabel ||
     a.pausePressed !== b.pausePressed ||

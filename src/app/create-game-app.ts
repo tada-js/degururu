@@ -73,7 +73,6 @@ type UiLocalState = {
   inquiryOpenedAt: number;
   inquiryForm: InquiryForm;
   speedMultiplier: number;
-  quickFinishPending: boolean;
 };
 
 type InquiryValidationResult =
@@ -327,14 +326,11 @@ export function bootstrapGameApp() {
     inquiryOpenedAt: 0,
     inquiryForm: { ...EMPTY_INQUIRY_FORM },
     speedMultiplier: 1,
-    quickFinishPending: false,
   };
 
   let refreshUi: () => void = () => {};
   let applyLoopSpeed = (_speedMultiplier: number): void => {};
   let appliedLoopSpeed = uiState.speedMultiplier;
-  let quickFinishRafId = 0;
-  let quickFinishJobId = 0;
   let lastFrameUiRefreshAt = 0;
   let lastFrameUiSignature = "";
   const finishedAtSecondsByMarbleId = new Map<string, number>();
@@ -343,8 +339,6 @@ export function bootstrapGameApp() {
   let prevFrameSimT = 0;
   let seenFinishedCount = 0;
 
-  const QUICK_FINISH_STEPS_PER_FRAME = 560;
-  const QUICK_FINISH_MAX_STEPS = 84000;
   const FRAME_UI_THROTTLE_MS = 96;
 
   const catalogController = createCatalogController({
@@ -499,64 +493,6 @@ export function bootstrapGameApp() {
     applyLoopSpeed(appliedLoopSpeed);
   }
 
-  function cancelQuickFinishTask() {
-    quickFinishJobId += 1;
-    if (quickFinishRafId) {
-      window.cancelAnimationFrame(quickFinishRafId);
-      quickFinishRafId = 0;
-    }
-    uiState.quickFinishPending = false;
-  }
-
-  function completeRunNow(): boolean {
-    if (uiState.quickFinishPending) return false;
-    if (state.mode !== "playing" || state.winner) return false;
-
-    const jobId = quickFinishJobId + 1;
-    quickFinishJobId = jobId;
-    if (quickFinishRafId) {
-      window.cancelAnimationFrame(quickFinishRafId);
-      quickFinishRafId = 0;
-    }
-
-    uiState.quickFinishPending = true;
-    state.paused = false;
-    let stepped = 0;
-
-    const runChunk = () => {
-      if (jobId !== quickFinishJobId) return;
-
-      let localSteps = 0;
-      while (
-        localSteps < QUICK_FINISH_STEPS_PER_FRAME &&
-        stepped < QUICK_FINISH_MAX_STEPS &&
-        state.mode === "playing" &&
-        !state.winner
-      ) {
-        step(state, 1 / 60);
-        localSteps += 1;
-        stepped += 1;
-      }
-
-      sessionController.onAfterFrame();
-
-      if (state.winner || state.mode !== "playing" || stepped >= QUICK_FINISH_MAX_STEPS) {
-        if (jobId === quickFinishJobId) {
-          uiState.quickFinishPending = false;
-          quickFinishRafId = 0;
-          refreshUi();
-        }
-        return;
-      }
-
-      quickFinishRafId = window.requestAnimationFrame(runChunk);
-    };
-
-    quickFinishRafId = window.requestAnimationFrame(runChunk);
-    refreshUi();
-    return true;
-  }
-
   function closeResultModalPresentation() {
     if (uiState.resultState.phase === "spinning") {
       uiState.resultState.phase = resolveResultPhase(uiState.resultState.items);
@@ -668,7 +604,7 @@ export function bootstrapGameApp() {
     const inRun = state.mode === "playing" && !state.winner;
     const remainingToFinish = inRun ? Math.max(0, (Number(state.totalToDrop) || 0) - state.finished.length) : -1;
     const winnerT = state.winner ? Number(state.winner.t.toFixed(4)) : -1;
-    const signature = `${state.mode}|${state.paused ? 1 : 0}|${remainingToFinish}|${winnerT}|${uiState.quickFinishPending ? 1 : 0}`;
+    const signature = `${state.mode}|${state.paused ? 1 : 0}|${remainingToFinish}|${winnerT}`;
 
     if (signature === lastFrameUiSignature && now - lastFrameUiRefreshAt < FRAME_UI_THROTTLE_MS) return;
     lastFrameUiSignature = signature;
@@ -694,7 +630,6 @@ export function bootstrapGameApp() {
     const nextSnapshot: UiSnapshot = {
       startDisabled: total <= 0,
       startLabel: inRun ? "다시 시작" : "게임 시작",
-      quickFinishPending: uiState.quickFinishPending,
       pauseDisabled: !inRun,
       pauseLabel: state.paused ? "이어하기" : "일시정지",
       pausePressed: !!state.paused,
@@ -754,7 +689,6 @@ export function bootstrapGameApp() {
     },
     onReset: () => {
       resetArrivalTimingTrackers();
-      cancelQuickFinishTask();
       uiState.winnerCountWasClamped = false;
       resetResultHistory();
       syncLoopSpeed(true);
@@ -770,7 +704,6 @@ export function bootstrapGameApp() {
 
   setUiActions({
     handleStartClick: () => {
-      cancelQuickFinishTask();
       closeResultModalPresentation();
       resetResultHistory();
       uiState.winnerCountWasClamped = false;
@@ -782,16 +715,13 @@ export function bootstrapGameApp() {
       refreshUi();
     },
     prepareRestartForCountdown: () => {
-      cancelQuickFinishTask();
       sessionController.prepareRestartForCountdown();
       syncLoopSpeed(true);
       refreshUi();
     },
-    completeRunNow: () => completeRunNow(),
     stopRunNow: () => {
       const inRun = state.mode === "playing" && !state.winner;
       if (!inRun) return false;
-      cancelQuickFinishTask();
       sessionController.prepareRestartForCountdown();
       syncLoopSpeed(true);
       refreshUi();
@@ -987,7 +917,6 @@ export function bootstrapGameApp() {
       return copied;
     },
     restartFromResult: () => {
-      cancelQuickFinishTask();
       closeResultModalPresentation();
       resetResultHistory();
       uiState.winnerCountWasClamped = false;
@@ -1157,7 +1086,6 @@ export function bootstrapGameApp() {
   return {
     refreshUi,
     dispose: () => {
-      cancelQuickFinishTask();
       syncLoopSpeed(true);
     },
   };

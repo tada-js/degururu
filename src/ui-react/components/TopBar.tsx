@@ -9,9 +9,6 @@ type TopBarProps = {
   statusLabel: string;
   statusTone: StatusTone;
   statusMetaText?: string | null;
-  quickFinishVisible: boolean;
-  quickFinishDisabled: boolean;
-  quickFinishLabel: string;
   stopRunVisible: boolean;
   stopRunDisabled: boolean;
   speedMultiplier: number;
@@ -20,7 +17,6 @@ type TopBarProps = {
   bgmMenuOpen: boolean;
   bgmControlRef: RefObject<HTMLDivElement | null>;
   onStart: () => void;
-  onQuickFinish: () => void;
   onStopRun: () => void;
   onToggleSpeed: () => void;
   onToggleBgm: () => void;
@@ -36,9 +32,6 @@ export function TopBar(props: TopBarProps) {
     statusLabel,
     statusTone,
     statusMetaText,
-    quickFinishVisible,
-    quickFinishDisabled,
-    quickFinishLabel,
     stopRunVisible,
     stopRunDisabled,
     speedMultiplier,
@@ -47,7 +40,6 @@ export function TopBar(props: TopBarProps) {
     bgmMenuOpen,
     bgmControlRef,
     onStart,
-    onQuickFinish,
     onStopRun,
     onToggleSpeed,
     onToggleBgm,
@@ -65,22 +57,6 @@ export function TopBar(props: TopBarProps) {
   const metaText = typeof statusMetaText === "string" && statusMetaText.trim() ? statusMetaText : null;
   const isFastMode = speedMultiplier >= 2;
   const runActionButtons: ReactNode[] = [];
-
-  if (quickFinishVisible) {
-    runActionButtons.push(
-      <Button
-        key="quick-finish"
-        id="finish-now-btn"
-        variant="ghost"
-        size="sm"
-        className="topbar__quickFinish"
-        disabled={quickFinishDisabled}
-        onClick={onQuickFinish}
-      >
-        {quickFinishLabel}
-      </Button>
-    );
-  }
 
   if (stopRunVisible) {
     runActionButtons.push(

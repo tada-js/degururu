@@ -271,23 +271,6 @@ html, body {
   gap: 8px;
   flex: 0 0 auto;
 }
-.topbar__quickFinish.btn {
-  min-height: 36px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 11px;
-  border-color: rgba(255,176,0,0.34);
-  background: rgba(255,176,0,0.08);
-  color: rgba(255,236,198,0.95);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08px;
-  box-shadow: none;
-}
-.topbar__quickFinish.btn:hover:not(:disabled) {
-  border-color: rgba(255,176,0,0.5);
-  background: rgba(255,176,0,0.14);
-}
 .topbar__stop.btn {
   min-height: 36px;
   height: 36px;
@@ -1862,7 +1845,6 @@ dialog.dialog--winner::backdrop {
     justify-content: center;
     gap: 6px;
   }
-  .topbar__runActions .topbar__quickFinish.btn,
   .topbar__runActions .topbar__stop.btn {
     min-width: 108px;
   }
@@ -1943,19 +1925,12 @@ dialog.dialog--winner::backdrop {
     padding-right: 10px;
     font-size: 12px;
   }
-  .topbar__quickFinish.btn {
-    min-height: 32px;
-    height: 32px;
-    padding: 0 9px;
-    font-size: 10.5px;
-  }
   .topbar__stop.btn {
     min-height: 32px;
     height: 32px;
     padding: 0 9px;
     font-size: 10.5px;
   }
-  .topbar__runActions .topbar__quickFinish.btn,
   .topbar__runActions .topbar__stop.btn {
     min-width: 96px;
   }
@@ -2062,7 +2037,6 @@ dialog.dialog--winner::backdrop {
   .statusBadge__meta {
     font-size: 10px;
   }
-  .topbar__quickFinish.btn,
   .topbar__stop.btn {
     min-height: 30px;
     height: 30px;
@@ -2072,9 +2046,8 @@ dialog.dialog--winner::backdrop {
     width: 100%;
     justify-content: center;
   }
-  .topbar__runActions .topbar__quickFinish.btn,
   .topbar__runActions .topbar__stop.btn {
-    flex: 1 1 calc(50% - 4px);
+    flex: 1 1 140px;
     min-width: 0;
     max-width: 150px;
   }
@@ -2158,7 +2131,6 @@ dialog.dialog--winner::backdrop {
   .statusBadge__meta {
     font-size: 9.5px;
   }
-  .topbar__runActions .topbar__quickFinish.btn,
   .topbar__runActions .topbar__stop.btn {
     max-width: 136px;
   }
