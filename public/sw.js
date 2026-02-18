@@ -1,4 +1,4 @@
-const SW_VERSION = "degururu-pwa-v1";
+const SW_VERSION = "degururu-pwa-v2";
 const STATIC_CACHE = `${SW_VERSION}-static`;
 const RUNTIME_CACHE = `${SW_VERSION}-runtime`;
 const PRECACHE_URLS = [
@@ -9,8 +9,7 @@ const PRECACHE_URLS = [
   "/offline.html",
   "/favicon.ico",
   "/assets/og-image.png",
-  "/assets/pwa-192.png",
-  "/assets/pwa-512.png",
+  "/assets/pwa-img.png",
 ];
 
 self.addEventListener("install", (event) => {

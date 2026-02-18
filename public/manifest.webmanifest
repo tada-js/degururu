@@ -11,14 +11,8 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/assets/pwa-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/assets/pwa-512.png",
-      "sizes": "512x512",
+      "src": "/assets/pwa-img.png",
+      "sizes": "1456x816",
       "type": "image/png",
       "purpose": "any maskable"
     }
