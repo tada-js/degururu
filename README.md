@@ -4,6 +4,15 @@
 
 - 플레이: [https://degururu.vercel.app/](https://degururu.vercel.app/)
 
+## 접속/이벤트 분석
+
+- `@vercel/analytics` 기반으로 페이지 방문(자동)과 핵심 이벤트를 수집합니다.
+- 수집 이벤트:
+  - `game_start`: 게임 시작
+  - `result_open`: 결과 보기 열기(자동/수동)
+  - `result_copy`: 결과 복사
+- 개인정보(이메일/문의 내용/참가자 이름 원문)는 이벤트 payload에 포함하지 않습니다.
+
 ## 게임 한눈에 보기
 
 ![데구르르 플레이 이미지](public/assets/play-img.png)
