@@ -48,12 +48,23 @@ export function createLoopController<State extends { mode?: string; paused?: boo
     maxCatchUpSteps: number;
     maxElapsedMs: number;
   };
-  const frameBudgetPolicies: FrameBudgetPolicy[] = [
+  const defaultFrameBudgetPolicies: FrameBudgetPolicy[] = [
     { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 2, maxElapsedMs: 40 },
     { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 3, maxElapsedMs: 56 },
     { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 4, maxElapsedMs: 72 },
     { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 5, maxElapsedMs: 88 },
   ];
+  const coarsePointerFrameBudgetPolicies: FrameBudgetPolicy[] = [
+    // Mobile/coarse pointer: allow more catch-up so gameplay speed stays closer to desktop.
+    { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 4, maxElapsedMs: 72 },
+    { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 5, maxElapsedMs: 88 },
+    { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 6, maxElapsedMs: 104 },
+    { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 7, maxElapsedMs: 120 },
+  ];
+  const isCoarsePointerViewport = Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
+  const frameBudgetPolicies = isCoarsePointerViewport
+    ? coarsePointerFrameBudgetPolicies
+    : defaultFrameBudgetPolicies;
   let speedMultiplier = Number.isFinite(initialSpeedMultiplier)
     ? Math.max(0.5, Math.min(3, initialSpeedMultiplier))
     : 1;
