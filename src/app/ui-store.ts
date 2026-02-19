@@ -2,6 +2,7 @@
  * Small external UI store shared between bootstrap (game logic) and React UI.
  */
 const listeners = new Set<() => void>();
+const DEFAULT_START_CAPTION = "두근두근 당첨자는 누구일까요?";
 
 export type InquiryField = "email" | "subject" | "message" | "website";
 export type RequiredInquiryField = "email" | "subject" | "message";
@@ -127,7 +128,7 @@ const DEFAULT_SNAPSHOT: UiSnapshot = Object.freeze({
   winnerCount: 1,
   winnerCountMax: 1,
   winnerCountWasClamped: false,
-  startCaption: "",
+  startCaption: DEFAULT_START_CAPTION,
   resultState: Object.freeze({
     open: false,
     phase: "idle",
