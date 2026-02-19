@@ -2080,7 +2080,11 @@ dialog.dialog--winner::backdrop {
   }
   .topbar {
     gap: 6px;
-    backdrop-filter: none;
+    background:
+      radial-gradient(120px 70px at 84% 0%, rgba(69,243,195,0.10), transparent 72%),
+      radial-gradient(120px 70px at 16% 0%, rgba(255,0,170,0.09), transparent 72%),
+      linear-gradient(180deg, rgba(7,14,28,0.78), rgba(7,12,24,0.56));
+    backdrop-filter: blur(5px) saturate(110%);
   }
   .topbar__left {
     max-width: min(70vw, 220px);
@@ -2382,7 +2386,7 @@ dialog.dialog--winner::backdrop {
     border-color: rgba(255,255,255,0.12);
     background: linear-gradient(180deg, rgba(8, 15, 30, 0.34), rgba(8, 15, 30, 0.2));
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    backdrop-filter: none;
+    backdrop-filter: blur(4px);
     color: rgba(229,236,247,0.74);
   }
   .boardStatus__badge .statusBadge__indicator {
@@ -2396,13 +2400,13 @@ dialog.dialog--winner::backdrop {
     color: rgba(203,217,236,0.56);
   }
   .hudMobileSheet__header {
-    backdrop-filter: none;
+    backdrop-filter: blur(4px);
   }
   dialog.dialog--settings::backdrop {
-    backdrop-filter: none;
+    backdrop-filter: blur(4px);
   }
   dialog.dialog--winner::backdrop {
-    backdrop-filter: none;
+    backdrop-filter: blur(4px);
   }
 }
 

@@ -146,13 +146,13 @@ const RENDER_QUALITY_PROFILES: Record<RenderQualityLevel, RenderQualityProfile> 
     pixelRatioFloor: 0.72,
     pixelRatioCap: 0.9,
     showAnimatedHaze: false,
-    showGridOverlay: false,
+    showGridOverlay: true,
     showTrail: false,
     showParticles: false,
     detailedPegs: false,
     detailedMarbleShell: false,
     nameLabelMaxActive: 0,
-    gridAlphaBase: 0,
+    gridAlphaBase: 0.12,
   },
 };
 
@@ -192,17 +192,15 @@ function resolveAdaptiveQualityLevel(params: {
 }): RenderQualityLevel {
   const { baseLevel, lowPowerViewport, activeCount, avgFrameMs } = params;
   let downgradeSteps = 0;
-  const overHighLoad = activeCount >= 90 || avgFrameMs >= 28;
-  const overMediumLoad = activeCount >= 52 || avgFrameMs >= 20;
+  const overHighLoad = activeCount >= 120 || avgFrameMs >= 33;
+  const overMediumLoad = activeCount >= 72 || avgFrameMs >= 24;
 
   if (overHighLoad) downgradeSteps = 2;
   else if (overMediumLoad) downgradeSteps = 1;
 
   if (lowPowerViewport) {
-    downgradeSteps = Math.max(downgradeSteps, 1);
-    if (activeCount >= 28 || avgFrameMs >= 18) {
-      downgradeSteps = Math.max(downgradeSteps, 2);
-    }
+    if (activeCount >= 44 || avgFrameMs >= 22) downgradeSteps = Math.max(downgradeSteps, 1);
+    if (activeCount >= 96 || avgFrameMs >= 31) downgradeSteps = Math.max(downgradeSteps, 2);
   }
 
   return downgradeQualityLevel(baseLevel, downgradeSteps);
@@ -1212,7 +1210,8 @@ export function makeRenderer(canvas: HTMLCanvasElement, { board }: { board: Boar
             ctx.stroke();
           } else {
             // Simplified rails on adaptive medium/low quality (keeps shape, cuts GPU blur cost).
-            ctx.shadowBlur = 0;
+            ctx.shadowColor = "rgba(73, 235, 255, 0.46)";
+            ctx.shadowBlur = renderQuality.level === "medium" ? 6 : 0;
             ctx.lineWidth = renderQuality.level === "medium" ? 5.6 : 4.2;
             ctx.strokeStyle = renderQuality.level === "medium"
               ? "rgba(130, 236, 255, 0.58)"
