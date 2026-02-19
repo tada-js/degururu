@@ -36,6 +36,7 @@ import {
   validateUploadImageFile,
 } from "./image-upload-policy";
 import { setUiActions, setUiSnapshot } from "./ui-store";
+import { ANALYTICS_EVENTS, trackAnalyticsEvent } from "./analytics";
 import type {
   InquiryField,
   InquiryForm,
@@ -558,12 +559,38 @@ export function bootstrapGameApp() {
     playWinnerFanfare();
   }
 
+  function trackGameStartEvent(restartedFromRun: boolean) {
+    const participantCount =
+      state.totalToDrop > 0 ? Math.max(1, Number(state.totalToDrop) || 1) : Math.max(1, getTotalSelectedCount(state));
+    const winnerCount = clampResultCount(uiState.winnerCount, participantCount);
+    trackAnalyticsEvent(ANALYTICS_EVENTS.gameStart, {
+      participantCount,
+      winnerCount,
+      speedMultiplier: uiState.speedMultiplier,
+      restartedFromRun,
+    });
+  }
+
+  function trackResultOpenEvent(source: "auto" | "manual") {
+    const selectedCount = uiState.resultState.items.length;
+    if (!selectedCount) return;
+    const participantCount =
+      state.totalToDrop > 0 ? Math.max(1, Number(state.totalToDrop) || 1) : Math.max(1, getTotalSelectedCount(state));
+    trackAnalyticsEvent(ANALYTICS_EVENTS.resultOpen, {
+      source,
+      selectedCount,
+      requestedCount: uiState.resultState.requestedCount,
+      participantCount,
+    });
+  }
+
   function prepareAndOpenResultReveal() {
     if (!state.totalToDrop || !state.finished.length) return;
     captureFinishedArrivalTimes(performance.now());
     const selected = selectLastFinishers(state.finished, uiState.winnerCount, state.totalToDrop);
     const items = mapFinishedToResultItems(selected);
     openResultPresentationByCount(items);
+    trackResultOpenEvent("auto");
   }
 
   function getLiveCatalogForDraft() {
@@ -705,12 +732,14 @@ export function bootstrapGameApp() {
 
   setUiActions({
     handleStartClick: () => {
+      const wasInRun = state.mode === "playing" && !state.winner;
       closeResultModalPresentation();
       resetResultHistory();
       uiState.winnerCountWasClamped = false;
       sessionController.handleStartClick();
       if (state.mode === "playing" && state.released) {
         beginArrivalTimingTrackers();
+        trackGameStartEvent(wasInRun);
       }
       syncLoopSpeed(true);
       refreshUi();
@@ -890,7 +919,11 @@ export function bootstrapGameApp() {
     },
     openResultModal: () => {
       if (!uiState.resultState.items.length) return false;
+      const wasOpen = uiState.resultState.open;
       uiState.resultState.open = true;
+      if (!wasOpen) {
+        trackResultOpenEvent("manual");
+      }
       refreshUi();
       return true;
     },
@@ -912,8 +945,15 @@ export function bootstrapGameApp() {
       const text = toResultCopyText(uiState.resultState.items);
       if (!text) return false;
       const copied = await copyTextWithFallback(text);
-      if (copied) showInquiryToast("결과를 복사했습니다.", "success", 1800);
-      else showInquiryToast("결과 복사에 실패했습니다.", "error", 2200);
+      if (copied) {
+        trackAnalyticsEvent(ANALYTICS_EVENTS.resultCopy, {
+          selectedCount: uiState.resultState.items.length,
+          requestedCount: uiState.resultState.requestedCount,
+        });
+        showInquiryToast("결과를 복사했습니다.", "success", 1800);
+      } else {
+        showInquiryToast("결과 복사에 실패했습니다.", "error", 2200);
+      }
       refreshUi();
       return copied;
     },

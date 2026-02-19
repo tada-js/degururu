@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
 import { bootstrapGameApp } from "./app/create-game-app";
 import { AppShell } from "./ui-react/AppShell";
 import { registerServiceWorker } from "./pwa/register-service-worker";
@@ -31,7 +32,12 @@ function App() {
     };
   }, []);
 
-  return <AppShell />;
+  return (
+    <>
+      <AppShell />
+      <Analytics />
+    </>
+  );
 }
 
 const rootEl = document.getElementById("root");
