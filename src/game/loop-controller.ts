@@ -41,25 +41,27 @@ export function createLoopController<State extends { mode?: string; paused?: boo
 
   let resizeRaf = 0;
   let last = performance.now();
+  let accumulatorMs = 0;
   const fixedStepSec = 1 / 60;
   const fixedStepMs = 1000 / 60;
+  const maxFrameDeltaMs = 240;
   type FrameBudgetPolicy = {
     maxSpeedMultiplier: number;
     maxCatchUpSteps: number;
     maxElapsedMs: number;
   };
   const defaultFrameBudgetPolicies: FrameBudgetPolicy[] = [
-    { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 2, maxElapsedMs: 40 },
-    { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 3, maxElapsedMs: 56 },
-    { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 4, maxElapsedMs: 72 },
-    { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 5, maxElapsedMs: 88 },
+    { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 4, maxElapsedMs: 64 },
+    { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 5, maxElapsedMs: 84 },
+    { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 6, maxElapsedMs: 104 },
+    { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 7, maxElapsedMs: 124 },
   ];
   const coarsePointerFrameBudgetPolicies: FrameBudgetPolicy[] = [
-    // Mobile/coarse pointer: allow more catch-up so gameplay speed stays closer to desktop.
-    { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 4, maxElapsedMs: 72 },
-    { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 5, maxElapsedMs: 88 },
-    { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 6, maxElapsedMs: 104 },
-    { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 7, maxElapsedMs: 120 },
+    // Real devices can drop to low FPS; keep larger catch-up budget so game time does not lag.
+    { maxSpeedMultiplier: 1.01, maxCatchUpSteps: 8, maxElapsedMs: 136 },
+    { maxSpeedMultiplier: 1.5, maxCatchUpSteps: 9, maxElapsedMs: 156 },
+    { maxSpeedMultiplier: 2.1, maxCatchUpSteps: 10, maxElapsedMs: 176 },
+    { maxSpeedMultiplier: Number.POSITIVE_INFINITY, maxCatchUpSteps: 11, maxElapsedMs: 196 },
   ];
   const isCoarsePointerViewport = Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
   const frameBudgetPolicies = isCoarsePointerViewport
@@ -88,13 +90,19 @@ export function createLoopController<State extends { mode?: string; paused?: boo
    */
   function tickFixed(ms: number): void {
     const rawMs = Number(ms);
-    const safeMs = Number.isFinite(rawMs) ? Math.max(0, rawMs) : 0;
+    const safeMs = Number.isFinite(rawMs) ? Math.max(0, Math.min(maxFrameDeltaMs, rawMs)) : 0;
     const scaledMs = safeMs * speedMultiplier;
     const frameBudget = getFrameBudgetPolicy();
-    const maxStepBudgetMs = fixedStepMs * frameBudget.maxCatchUpSteps;
-    const budgetMs = Math.min(maxStepBudgetMs, frameBudget.maxElapsedMs, scaledMs);
-    const steps = Math.max(1, Math.round(budgetMs / fixedStepMs));
-    for (let i = 0; i < steps; i++) stepFn(state, fixedStepSec);
+    const budgetMs = Math.min(frameBudget.maxElapsedMs, scaledMs);
+    const maxAccumulatorMs = fixedStepMs * frameBudget.maxCatchUpSteps * 3;
+    accumulatorMs = Math.min(accumulatorMs + budgetMs, maxAccumulatorMs);
+
+    let steps = 0;
+    while (accumulatorMs >= fixedStepMs && steps < frameBudget.maxCatchUpSteps) {
+      stepFn(state, fixedStepSec);
+      accumulatorMs -= fixedStepMs;
+      steps += 1;
+    }
     draw();
     onAfterFrame();
   }
@@ -122,6 +130,7 @@ export function createLoopController<State extends { mode?: string; paused?: boo
       if (state.mode === "playing" && !state.paused) {
         tickFixed(elapsedMs);
       } else {
+        accumulatorMs = 0;
         draw();
       }
       requestAnimationFrame(raf);
