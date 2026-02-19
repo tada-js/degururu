@@ -329,7 +329,6 @@ export function LeftPanel(props: LeftPanelProps) {
             <div className="hudMobileSheet__titleRow">
               <div className="hudMobileSheet__titleWrap">
                 <div className="hudMobileSheet__title">게임 설정</div>
-                <div className="hudMobileSheet__subtitle">항목을 눌러 펼치세요</div>
               </div>
               <IconButton
                 className="hudMobileSheet__closeBtn"
@@ -342,6 +341,129 @@ export function LeftPanel(props: LeftPanelProps) {
             </div>
           </div>
         )}
+
+        <div className={startCaptionClassName}>
+          {isMobileViewport && (
+            <button
+              type="button"
+              className="mobileFold__toggle"
+              aria-label={showStartCaption ? "시작지점 문구 접기" : "시작지점 문구 펼치기"}
+              aria-expanded={showStartCaption}
+              aria-controls="start-caption-body"
+              onClick={() => setCaptionFoldOpen((prev) => !prev)}
+            >
+              <span className="mobileFold__label">시작지점 문구</span>
+              <span className="mobileFold__meta">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
+              <span className={`mobileFold__caret ${showStartCaption ? "is-open" : ""}`} aria-hidden="true">
+                ▾
+              </span>
+            </button>
+          )}
+          {showStartCaption && (
+            <div id="start-caption-body">
+              {!isMobileViewport ? (
+                <div className="startCaption__labelRow">
+                  <label className="startCaption__label" htmlFor="start-caption-input">
+                    시작지점 문구
+                  </label>
+                  <span className="startCaption__count">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
+                </div>
+              ) : null}
+              <input
+                id="start-caption-input"
+                className="startCaption__input"
+                type="text"
+                maxLength={START_CAPTION_MAX}
+                placeholder="예) 두근두근 당첨자는 누구일까요?"
+                value={startCaption}
+                disabled={isLocked}
+                onChange={(event) => onSetStartCaption(event.currentTarget.value)}
+              />
+              <div className="startCaption__hint">
+                {isLocked ? "진행 중에는 변경할 수 없어요." : "띄어쓰기 포함 최대 28자, 시작지점 상단에 표시됩니다."}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className={resultOptionClassName}>
+          {isMobileViewport && (
+            <button
+              type="button"
+              className="mobileFold__toggle"
+              aria-label={showResultOption ? "당첨자 수 접기" : "당첨자 수 펼치기"}
+              aria-expanded={showResultOption}
+              aria-controls="result-option-body"
+              onClick={() => setResultFoldOpen((prev) => !prev)}
+            >
+              <span className="mobileFold__label">당첨자 수</span>
+              <span className={`mobileFold__caret ${showResultOption ? "is-open" : ""}`} aria-hidden="true">
+                ▾
+              </span>
+            </button>
+          )}
+          {showResultOption && (
+            <>
+              <div
+                className={`resultOption__row ${isMobileViewport ? "resultOption__row--mobile" : ""}`}
+                id="result-option-body"
+              >
+                {!isMobileViewport ? <div className="resultOption__label">당첨자 수</div> : null}
+                <div
+                  className={`resultOption__viewWrap ${resultDisabled ? "tooltip" : ""}`}
+                  data-tip={resultDisabled ? "결과 보기는 게임 종료 이후 확인할 수 있습니다." : undefined}
+                >
+                  <Button
+                    id="winner-btn"
+                    variant="ghost"
+                    size="sm"
+                    className="resultOption__viewBtn"
+                    disabled={resultDisabled}
+                    onClick={onOpenResult}
+                  >
+                    결과 보기
+                  </Button>
+                </div>
+              </div>
+
+              <div className="resultOption__controls">
+                <div className="resultOption__stepper">
+                  <Button
+                    variant="ghost"
+                    className="resultOption__stepBtn"
+                    disabled={isLocked || !canDecreaseResultCount}
+                    onClick={() => onSetWinnerCount(winnerCount - 1)}
+                  >
+                    -
+                  </Button>
+                  <input
+                    id="winner-count-input"
+                    className="resultOption__input"
+                    type="number"
+                    min={1}
+                    max={winnerCountMax}
+                    step={1}
+                    value={String(winnerCount)}
+                    disabled={isLocked}
+                    onChange={(event) => onSetWinnerCount(Number(event.currentTarget.value))}
+                  />
+                  <Button
+                    variant="ghost"
+                    className="resultOption__stepBtn"
+                    disabled={isLocked || !canIncreaseResultCount}
+                    onClick={() => onSetWinnerCount(winnerCount + 1)}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+              <div className="resultOption__helper">가장 늦게 도착한 순서대로 결과를 공개합니다.</div>
+              {winnerCountWasClamped && (
+                <div className="resultOption__hint">참가자 수를 넘어 자동으로 참가자 수로 맞춰졌습니다.</div>
+              )}
+            </>
+          )}
+        </div>
 
         <section className={participantSectionClassName}>
           {isMobileViewport ? (
@@ -472,123 +594,6 @@ export function LeftPanel(props: LeftPanelProps) {
           )}
         </section>
 
-        <div className={resultOptionClassName}>
-          {isMobileViewport && (
-            <button
-              type="button"
-              className="mobileFold__toggle"
-              aria-label={showResultOption ? "당첨자 수 접기" : "당첨자 수 펼치기"}
-              aria-expanded={showResultOption}
-              aria-controls="result-option-body"
-              onClick={() => setResultFoldOpen((prev) => !prev)}
-            >
-              <span className="mobileFold__label">당첨자 수</span>
-              <span className={`mobileFold__caret ${showResultOption ? "is-open" : ""}`} aria-hidden="true">
-                ▾
-              </span>
-            </button>
-          )}
-          {showResultOption && (
-            <>
-              <div className="resultOption__row" id="result-option-body">
-                <div className="resultOption__label">당첨자 수</div>
-                <div
-                  className={`resultOption__viewWrap ${resultDisabled ? "tooltip" : ""}`}
-                  data-tip={resultDisabled ? "결과 보기는 게임 종료 이후 확인할 수 있습니다." : undefined}
-                >
-                  <Button
-                    id="winner-btn"
-                    variant="ghost"
-                    size="sm"
-                    className="resultOption__viewBtn"
-                    disabled={resultDisabled}
-                    onClick={onOpenResult}
-                  >
-                    결과 보기
-                  </Button>
-                </div>
-              </div>
-
-              <div className="resultOption__controls">
-                <div className="resultOption__stepper">
-                  <Button
-                    variant="ghost"
-                    className="resultOption__stepBtn"
-                    disabled={isLocked || !canDecreaseResultCount}
-                    onClick={() => onSetWinnerCount(winnerCount - 1)}
-                  >
-                    -
-                  </Button>
-                  <input
-                    id="winner-count-input"
-                    className="resultOption__input"
-                    type="number"
-                    min={1}
-                    max={winnerCountMax}
-                    step={1}
-                    value={String(winnerCount)}
-                    disabled={isLocked}
-                    onChange={(event) => onSetWinnerCount(Number(event.currentTarget.value))}
-                  />
-                  <Button
-                    variant="ghost"
-                    className="resultOption__stepBtn"
-                    disabled={isLocked || !canIncreaseResultCount}
-                    onClick={() => onSetWinnerCount(winnerCount + 1)}
-                  >
-                    +
-                  </Button>
-                </div>
-              </div>
-              <div className="resultOption__helper">가장 늦게 도착한 순서대로 결과를 공개합니다.</div>
-              {winnerCountWasClamped && (
-                <div className="resultOption__hint">참가자 수를 넘어 자동으로 참가자 수로 맞춰졌습니다.</div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className={startCaptionClassName}>
-          {isMobileViewport && (
-            <button
-              type="button"
-              className="mobileFold__toggle"
-              aria-label={showStartCaption ? "시작지점 문구 접기" : "시작지점 문구 펼치기"}
-              aria-expanded={showStartCaption}
-              aria-controls="start-caption-body"
-              onClick={() => setCaptionFoldOpen((prev) => !prev)}
-            >
-              <span className="mobileFold__label">시작지점 문구</span>
-              <span className="mobileFold__meta">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
-              <span className={`mobileFold__caret ${showStartCaption ? "is-open" : ""}`} aria-hidden="true">
-                ▾
-              </span>
-            </button>
-          )}
-          {showStartCaption && (
-            <div id="start-caption-body">
-              <div className="startCaption__labelRow">
-                <label className="startCaption__label" htmlFor="start-caption-input">
-                  시작지점 문구
-                </label>
-                <span className="startCaption__count">{`${startCaptionLength}/${START_CAPTION_MAX}`}</span>
-              </div>
-              <input
-                id="start-caption-input"
-                className="startCaption__input"
-                type="text"
-                maxLength={START_CAPTION_MAX}
-                placeholder="예) 두근두근 당첨자는 누구일까요?"
-                value={startCaption}
-                disabled={isLocked}
-                onChange={(event) => onSetStartCaption(event.currentTarget.value)}
-              />
-              <div className="startCaption__hint">
-                {isLocked ? "진행 중에는 변경할 수 없어요." : "띄어쓰기 포함 최대 28자, 시작지점 상단에 표시됩니다."}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

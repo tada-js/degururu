@@ -51,6 +51,7 @@ const EMPTY_INQUIRY_FORM = Object.freeze({
   message: "",
   website: "",
 });
+const DEFAULT_START_CAPTION = "두근두근 당첨자는 누구일까요?";
 
 type UiLocalState = {
   settingsOpen: boolean;
@@ -312,7 +313,7 @@ export function bootstrapGameApp() {
     settingsDraft: null,
     winnerCount: 1,
     winnerCountWasClamped: false,
-    startCaption: "",
+    startCaption: DEFAULT_START_CAPTION,
     resultState: {
       open: false,
       phase: "idle",

@@ -258,9 +258,6 @@ export function AppShell() {
         <TopBar
           startDisabled={ui.startDisabled || countdownValue != null}
           startLabel={countdownValue != null ? "준비 중..." : ui.startLabel}
-          statusLabel={ui.statusLabel}
-          statusTone={ui.statusTone}
-          statusMetaText={statusMetaText}
           stopRunVisible={stopRunVisible}
           stopRunDisabled={stopRunDisabled}
           speedMultiplier={ui.speedMultiplier}
@@ -305,6 +302,9 @@ export function AppShell() {
           <GameCanvasStage
             isDev={isDev}
             countdownValue={countdownValue}
+            statusLabel={ui.statusLabel}
+            statusTone={ui.statusTone}
+            statusMetaText={statusMetaText}
             onSkipCountdown={skipCountdown}
           />
         </main>
